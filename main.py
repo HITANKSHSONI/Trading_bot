@@ -24,7 +24,7 @@ headers = {
 # Request body
 payload = {
     "clientcode": os.getenv("ANGELONE_CLIENT_ID"),
-    "password": os.getenv("ANGELONE_PASSWORD"),
+    "password": os.getenv("ANGELONE_MPIN"),
     "totp": pyotp.TOTP(os.getenv("ANGELONE_TOTP_SECRET")).now()
 }
 
