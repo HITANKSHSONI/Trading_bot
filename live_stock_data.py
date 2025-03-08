@@ -1,16 +1,18 @@
-# Install dependencies if not installed: pip install requests dotenv pyotp pandas plotly
 import requests
 import os
 import pyotp
 import pandas as pd
 import plotly.graph_objects as go
 import sys
+import datetime
+import time
 from dotenv import load_dotenv
+import pandas_ta as ta  # Import pandas_ta
 
 # ✅ Fix UnicodeEncodeError for Windows
 sys.stdout.reconfigure(encoding='utf-8')
 
-# 🎯 Step 1: Load environment variables from .env file
+# 🎯 Load environment variables from .env file
 load_dotenv()
 
 # Angel One API credentials
@@ -19,146 +21,126 @@ CLIENT_ID = os.getenv("ANGELONE_CLIENT_ID")
 PASSWORD = os.getenv("ANGELONE_MPIN")
 TOTP_SECRET = os.getenv("ANGELONE_TOTP_SECRET")
 
-# API endpoint
-url = "https://apiconnect.angelone.in/rest/auth/angelbroking/user/v1/loginByPassword"
-
-# Headers
+# API Headers
 headers = {
     "Content-type": "application/json",
-    "X-ClientLocalIP": "127.0.0.1",
-    "X-ClientPublicIP": "127.0.0.1",
-    "X-MACAddress": "00:00:00:00:00:00",
-    "Accept": "application/json",
     "X-PrivateKey": API_KEY,
     "X-UserType": "USER",
     "X-SourceID": "WEB"
 }
 
-# Request body
-payload = {
-    "clientcode": CLIENT_ID,
-    "password": PASSWORD,
-    "totp": pyotp.TOTP(TOTP_SECRET).now()
-}
-
-try:
-    # 🔐 Make the POST request for authentication
+# ✅ Login Function
+def login():
+    url = "https://apiconnect.angelone.in/rest/auth/angelbroking/user/v1/loginByPassword"
+    payload = {
+        "clientcode": CLIENT_ID,
+        "password": PASSWORD,
+        "totp": pyotp.TOTP(TOTP_SECRET).now()
+    }
     response = requests.post(url, json=payload, headers=headers)
     response_data = response.json()
-
-    # ✅ Authentication Check
+    
     if response_data.get("status"):
         print("✅ Login successful!")
         auth_token = response_data["data"]["jwtToken"]
-        headers["Authorization"] = f"Bearer {auth_token}"  # Add auth token to headers
+        headers["Authorization"] = f"Bearer {auth_token}"
     else:
-        print("❌ Login failed. Error:", response_data.get("message"))
+        print("❌ Login failed!", response_data.get("message"))
         exit()
 
-except Exception as e:
-    print("⚠ An error occurred:", str(e))
-    exit()
+# ✅ Fetch Historical Data
+def fetch_historical_stock_data(symbol_token="3045", exchange="NSE"):
+    today = datetime.datetime.now()
+    last_week_start = today - datetime.timedelta(days=7)
+    last_week_end = today - datetime.timedelta(days=1)
 
-# 🎯 Step 2: Fetch Live Stock Data from Angel One API
-def fetch_live_stock_data(symbol="RELIANCE", exchange="NSE"):
+    from_date = last_week_start.strftime("%Y-%m-%d 09:15")
+    to_date = last_week_end.strftime("%Y-%m-%d 15:30")
+
     payload = {
-        "mode": "FULL",
-        "exchangeTokens": {exchange: ["3045"]}  # Ensure this token is correct
+        "exchange": exchange,
+        "symboltoken": symbol_token,
+        "interval": "FIFTEEN_MINUTE",
+        "fromdate": from_date,
+        "todate": to_date
     }
+
+    url = "https://apiconnect.angelone.in/rest/secure/angelbroking/historical/v1/getCandleData"
+    response = requests.post(url, json=payload, headers=headers)
+    response_data = response.json()
     
+    if "data" in response_data and response_data["data"]:
+        df = pd.DataFrame(response_data["data"], columns=["date", "open", "high", "low", "close", "volume"])
+        df["date"] = pd.to_datetime(df["date"])
+        df.set_index("date", inplace=True)
+        return df
+    else:
+        print("❌ API returned no historical data!")
+        return None
+
+# ✅ Fetch Live Data
+def fetch_live_stock_data(symbol="RELIANCE", exchange="NSE"):
     url = "https://apiconnect.angelone.in/rest/secure/angelbroking/market/v1/quote/"
+    payload = {"mode": "FULL", "exchangeTokens": {exchange: ["3045"]}}
     response = requests.post(url, json=payload, headers=headers)
     
     try:
         response_data = response.json()
-    except Exception as e:
-        print("❌ Failed to parse API response:", str(e))
-        return None
-    
-    # ✅ Debugging: Print API response structure
-    print("📊 Raw API Response:", response_data)
-
-    # ✅ Check if "data" key exists
-    if "data" in response_data and response_data["data"]:
-        try:
+        if "data" in response_data:
             market_data = response_data["data"].get("fetched", [])
-            if not market_data:
-                print("❌ No market data available!")
-                return None
-
-            # ✅ Convert to DataFrame
-            df = pd.DataFrame(market_data)
-
-            # ✅ Rename `exchFeedTime` to `date`
-            if "exchFeedTime" in df.columns:
+            if market_data:
+                df = pd.DataFrame(market_data)
                 df.rename(columns={"exchFeedTime": "date"}, inplace=True)
-
-            print("✅ Market Data Fetched Successfully!")
-            return df
-        except Exception as e:
-            print("⚠ Error while creating DataFrame:", str(e))
-            return None
-    else:
-        print("❌ API returned no data!")
-        return None
-
-# Fetch Data
-df = fetch_live_stock_data()
-
-# ✅ Check if Data is Available
-if df is None or df.empty:
-    print("⚠ No data available!")
-    exit()
-
-# Convert Date Column to Pandas Datetime Format
-df["date"] = pd.to_datetime(df["date"], errors="coerce")  # Handle invalid dates
-df.set_index("date", inplace=True)
-
-# 🎯 Step 3: Calculate Supertrend Indicator
-def calculate_supertrend(df, multiplier=3, period=10):
-    high_low = df["high"] - df["low"]
-    high_close = abs(df["high"] - df["close"].shift())
-    low_close = abs(df["low"] - df["close"].shift())
-    tr = high_low.combine(high_close, max).combine(low_close, max)
-    atr = tr.rolling(window=period).mean()
-
-    basic_upper = (df["high"] + df["low"]) / 2 + multiplier * atr
-    basic_lower = (df["high"] + df["low"]) / 2 - multiplier * atr
-
-    supertrend = [basic_upper[0]]
-    supertrend
-    for i in range(1, len(df)):
-        if df["close"][i] <= supertrend[-1]:
-            supertrend.append(basic_upper[i])
-        else:
-            supertrend.append(basic_lower[i])
-
-    return supertrend
-
-# Forward Fill Missing Data
-df.fillna(method="ffill", inplace=True)
-
-# Calculate Supertrend
-supertrend = calculate_supertrend(df)
-print("Supertrend type:", type(supertrend))
-
-# 🎯 Step 4: Plot Candlestick Chart with Supertrend
-def plot_stock_data(df, supertrend):
-    fig = go.Figure(data=[go.Candlestick(x=df.index,
-                                         open=df["open"],
-                                         high=df["high"],
-                                         low=df["low"],
-                                         close=df["close"])])
+                df["date"] = pd.to_datetime(df["date"])
+                return df
+    except Exception as e:
+        print("❌ Failed to fetch live data:", str(e))
     
-    fig.add_trace(go.Scatter(x=df.index, y=supertrend, mode="lines", name="Supertrend",
-                             line=dict(dash="dash")))
+    return None
 
-    fig.update_layout(title="Reliance Industries Stock with Supertrend",
-                      xaxis_title="Date",
+# ✅ Append Live Data to DataFrame
+def update_live_data(live_df, new_data):
+    if new_data is not None:
+        live_df = pd.concat([live_df, new_data]).drop_duplicates().reset_index(drop=True)
+        live_df.sort_values("date", inplace=True)
+        return live_df.tail(100)  # Keep only latest 100 records
+    return live_df
+
+# ✅ Plot Candlestick Chart with Supertrend
+def plot_live_chart(df):
+    fig = go.Figure(data=[go.Candlestick(
+        x=df.index, open=df["open"], high=df["high"], low=df["low"], close=df["close"]
+    )])
+    
+    if "SUPERT_10_2.0" in df.columns:
+        fig.add_trace(go.Scatter(
+            x=df.index, y=df["SUPERT_10_2.0"], mode="lines", name="Supertrend", line=dict(dash="dash", color="blue")
+        ))
+    
+    fig.update_layout(title="Live Stock Data with Supertrend",
+                      xaxis_title="Time",
                       yaxis_title="Price",
-                      xaxis=dict(rangeslider=dict(visible=True), type="date"))
+                      xaxis=dict(type="date"))
     
     fig.show()
 
-# Show Plot
-plot_stock_data(df, supertrend)
+# ✅ Main Function
+def main():
+    login()
+    live_df = fetch_historical_stock_data()
+    if live_df is None:
+        live_df = pd.DataFrame(columns=["date", "open", "high", "low", "close", "volume"])  # Empty DF
+
+    while True:
+        new_data = fetch_live_stock_data()
+        live_df = update_live_data(live_df, new_data)
+
+        if not live_df.empty:
+            supertrend = ta.supertrend(live_df['high'], live_df['low'], live_df['close'], length=10, multiplier=2.0)
+            live_df = pd.concat([live_df, supertrend], axis=1)
+            plot_live_chart(live_df)
+
+        time.sleep(10)  # Fetch data every 10 seconds
+
+if __name__ == "__main__":
+    main()
