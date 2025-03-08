@@ -20,7 +20,7 @@ CLIENT_ID = os.getenv("ANGELONE_CLIENT_ID")
 PASSWORD = os.getenv("ANGELONE_MPIN")
 TOTP_SECRET = os.getenv("ANGELONE_TOTP_SECRET")
 
-# API endpoint
+# API endpoint for login
 url = "https://apiconnect.angelone.in/rest/auth/angelbroking/user/v1/loginByPassword"
 
 # Headers
@@ -35,7 +35,7 @@ headers = {
     "X-SourceID": "WEB"
 }
 
-# Request body
+# Request body for login
 payload = {
     "clientcode": CLIENT_ID,
     "password": PASSWORD,
@@ -64,7 +64,7 @@ def fetch_historical_stock_data(symbol_token="3045", exchange="NSE"):
     last_week_end = today - datetime.timedelta(days=1)
 
     from_date = last_week_start.strftime("%Y-%m-%d 09:15")  # Market opens at 09:15 AM IST
-    to_date = last_week_end.strftime("%Y-%m-%d 15:30")  # Market closes at 03:30 PM IST
+    to_date = last_week_end.strftime("%Y-%m-%d 15:30")        # Market closes at 03:30 PM IST
 
     payload = {
         "exchange": exchange,
@@ -88,13 +88,13 @@ def fetch_historical_stock_data(symbol_token="3045", exchange="NSE"):
     if "data" in response_data and response_data["data"]:
         df = pd.DataFrame(response_data["data"], columns=["date", "open", "high", "low", "close", "volume"])
         df["date"] = pd.to_datetime(df["date"])
-        
-        # ✅ Fix: Extract time separately and filter correctly
-        df["time"] = df["date"].dt.time  # Extract time separately
-        df = df[(df["time"] >= datetime.time(9, 15)) & (df["time"] <= datetime.time(15, 30))]
-        df = df.drop(columns=["time"])  # Drop extra column after filtering
 
-        # ✅ Fix: Use index for weekday filtering
+        # Filter data to include only market working hours (09:15 to 15:30)
+        df["time"] = df["date"].dt.time
+        df = df[(df["time"] >= datetime.time(9, 15)) & (df["time"] <= datetime.time(15, 30))]
+        df = df.drop(columns=["time"])
+
+        # Remove weekends (if any data sneaks in)
         df.set_index("date", inplace=True)
         df = df[~df.index.weekday.isin([5, 6])]  # Remove Saturday (5) & Sunday (6)
 
@@ -118,21 +118,51 @@ df.ffill(inplace=True)
 supertrend = ta.supertrend(df['high'], df['low'], df['close'], length=10, multiplier=3)
 df = pd.concat([df, supertrend], axis=1)
 
-# 🎯 Plot Historical Data with Supertrend (Market Hours Only)
-def plot_historical_stock_data(df):
+# 🎯 Plot the Entire Week's Data in One Graph Using Rangebreaks with Adjusted Y-Axis
+def plot_weekly_data_single_graph(df):
     fig = go.Figure()
-    fig.add_trace(go.Candlestick(x=df.index, open=df["open"], high=df["high"], low=df["low"], close=df["close"], name="Candlestick"))
-    fig.add_trace(go.Scatter(x=df.index, y=df["SUPERT_10_3.0"], mode="lines", name="Supertrend", line=dict(dash="dash")))
+    
+    # Add candlestick trace
+    fig.add_trace(go.Candlestick(
+        x=df.index,
+        open=df["open"],
+        high=df["high"],
+        low=df["low"],
+        close=df["close"],
+        name="Candlestick"
+    ))
+    
+    # Add Supertrend line
+    fig.add_trace(go.Scatter(
+        x=df.index,
+        y=df["SUPERT_10_3.0"],
+        mode="lines",
+        name="Supertrend",
+        line=dict(dash="dash")
+    ))
+    
+    # Calculate y-axis range with some padding
+    y_min = df["low"].min() * 0.98  # 2% lower than the minimum
+    y_max = df["high"].max() * 1.02  # 2% higher than the maximum
 
     fig.update_layout(
-        title="Historical Stock Data with Supertrend (Market Hours Only)",
-        xaxis_title="Date",
+        title="Weekly Stock Data with Supertrend (Intraday: 9:15 to 15:30)",
+        xaxis_title="Date/Time",
         yaxis_title="Price",
-        xaxis=dict(rangeslider=dict(visible=True), type="date"),
-        yaxis=dict(fixedrange=False)  # Allow vertical zoom
+        yaxis=dict(range=[y_min, y_max])
     )
-
+    
+    # Use rangebreaks to remove non-trading hours and weekends from the x-axis
+    fig.update_xaxes(
+        rangebreaks=[
+            # Hide weekends
+            dict(bounds=["sat", "mon"]),
+            # Hide hours outside trading session (using decimal hours: 9:15 = 9.25, 15:30 = 15.5)
+            dict(bounds=[15.5, 9.25], pattern="hour")
+        ]
+    )
+    
     fig.show()
 
-# Show Plot
-plot_historical_stock_data(df)
+# Show the plot in one graph
+plot_weekly_data_single_graph(df)
