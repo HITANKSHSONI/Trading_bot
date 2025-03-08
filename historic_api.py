@@ -115,7 +115,7 @@ if df is None or df.empty:
 df.ffill(inplace=True)
 
 # 🎯 Calculate Supertrend Indicator using pandas_ta
-supertrend = ta.supertrend(df['high'], df['low'], df['close'], length=10, multiplier=3)
+supertrend = ta.supertrend(df['high'], df['low'], df['close'], length=10, multiplier=2.0)
 df = pd.concat([df, supertrend], axis=1)
 
 # 🎯 Plot the Entire Week's Data in One Graph Using Rangebreaks with Adjusted Y-Axis
@@ -135,7 +135,7 @@ def plot_weekly_data_single_graph(df):
     # Add Supertrend line
     fig.add_trace(go.Scatter(
         x=df.index,
-        y=df["SUPERT_10_3.0"],
+        y=df["SUPERT_7_3.0"],
         mode="lines",
         name="Supertrend",
         line=dict(dash="dash")
