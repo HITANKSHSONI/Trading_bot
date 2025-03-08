@@ -24,6 +24,10 @@ TOTP_SECRET = os.getenv("ANGELONE_TOTP_SECRET")
 # API Headers
 headers = {
     "Content-type": "application/json",
+    "X-ClientLocalIP": "127.0.0.1",
+    "X-ClientPublicIP": "127.0.0.1",
+    "X-MACAddress": "00:00:00:00:00:00",
+    "Accept": "application/json",
     "X-PrivateKey": API_KEY,
     "X-UserType": "USER",
     "X-SourceID": "WEB"
@@ -48,14 +52,12 @@ def login():
         print("❌ Login failed!", response_data.get("message"))
         exit()
 
-# ✅ Fetch Historical Data
+# ✅ Fetch Only Past Day's Historical Data
 def fetch_historical_stock_data(symbol_token="3045", exchange="NSE"):
     today = datetime.datetime.now()
-    last_week_start = today - datetime.timedelta(days=7)
-    last_week_end = today - datetime.timedelta(days=1)
-
-    from_date = last_week_start.strftime("%Y-%m-%d 09:15")
-    to_date = last_week_end.strftime("%Y-%m-%d 15:30")
+    past_day = today - datetime.timedelta(days=1)  # Fetch only yesterday's data
+    from_date = past_day.strftime("%Y-%m-%d 09:15")
+    to_date = past_day.strftime("%Y-%m-%d 15:30")
 
     payload = {
         "exchange": exchange,
@@ -72,7 +74,10 @@ def fetch_historical_stock_data(symbol_token="3045", exchange="NSE"):
     if "data" in response_data and response_data["data"]:
         df = pd.DataFrame(response_data["data"], columns=["date", "open", "high", "low", "close", "volume"])
         df["date"] = pd.to_datetime(df["date"])
+        # Historical data is already tz-aware; ensure the index is set accordingly
         df.set_index("date", inplace=True)
+        print("✅ Historical data fetched successfully:")
+        print(df.tail())
         return df
     else:
         print("❌ API returned no historical data!")
@@ -91,7 +96,15 @@ def fetch_live_stock_data(symbol="RELIANCE", exchange="NSE"):
             if market_data:
                 df = pd.DataFrame(market_data)
                 df.rename(columns={"exchFeedTime": "date"}, inplace=True)
+                # Convert the 'date' column to datetime and localize it to Asia/Kolkata
                 df["date"] = pd.to_datetime(df["date"])
+                if df["date"].dt.tz is None:
+                    df["date"] = df["date"].dt.tz_localize("Asia/Kolkata")
+                # Filter only the required columns
+                required_cols = ["date", "open", "high", "low", "close", "volume"]
+                df = df.filter(items=required_cols)
+                print("✅ Live data fetched successfully:")
+                print(df.tail())
                 return df
     except Exception as e:
         print("❌ Failed to fetch live data:", str(e))
@@ -100,10 +113,19 @@ def fetch_live_stock_data(symbol="RELIANCE", exchange="NSE"):
 
 # ✅ Append Live Data to DataFrame
 def update_live_data(live_df, new_data):
-    if new_data is not None:
-        live_df = pd.concat([live_df, new_data]).drop_duplicates().reset_index(drop=True)
-        live_df.sort_values("date", inplace=True)
-        return live_df.tail(100)  # Keep only latest 100 records
+    if new_data is not None and not new_data.empty:
+        required_cols = ["date", "open", "high", "low", "close", "volume"]
+        new_data = new_data.filter(items=required_cols)
+        # Reset index of live_df to merge using the 'date' column
+        if not live_df.empty:
+            live_df_reset = live_df.reset_index()
+        else:
+            live_df_reset = pd.DataFrame(columns=required_cols)
+        combined = pd.concat([live_df_reset, new_data], ignore_index=True)
+        combined.drop_duplicates(subset="date", inplace=True)
+        combined.sort_values("date", inplace=True)
+        combined.set_index("date", inplace=True)
+        return combined.tail(100)  # Keep only latest 100 records
     return live_df
 
 # ✅ Plot Candlestick Chart with Supertrend
@@ -117,10 +139,15 @@ def plot_live_chart(df):
             x=df.index, y=df["SUPERT_10_2.0"], mode="lines", name="Supertrend", line=dict(dash="dash", color="blue")
         ))
     
+    # Calculate y-axis range with some padding
+    y_min = df["low"].min() * 0.98  # 2% lower than the minimum
+    y_max = df["high"].max() * 1.02  # 2% higher than the maximum
+
     fig.update_layout(title="Live Stock Data with Supertrend",
                       xaxis_title="Time",
                       yaxis_title="Price",
-                      xaxis=dict(type="date"))
+                      xaxis=dict(type="date"),
+                      yaxis=dict(range=[y_min, y_max]))
     
     fig.show()
 
@@ -129,15 +156,23 @@ def main():
     login()
     live_df = fetch_historical_stock_data()
     if live_df is None:
-        live_df = pd.DataFrame(columns=["date", "open", "high", "low", "close", "volume"])  # Empty DF
-
+        live_df = pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
+    
+    # Calculate initial Supertrend on historical data
+    supertrend = ta.supertrend(live_df['high'], live_df['low'], live_df['close'], length=10, multiplier=2.0)
+    live_df = pd.concat([live_df, supertrend], axis=1)
+    plot_live_chart(live_df)
+    
     while True:
         new_data = fetch_live_stock_data()
         live_df = update_live_data(live_df, new_data)
 
         if not live_df.empty:
+            # Recalculate Supertrend with updated data
             supertrend = ta.supertrend(live_df['high'], live_df['low'], live_df['close'], length=10, multiplier=2.0)
-            live_df = pd.concat([live_df, supertrend], axis=1)
+            live_df = pd.concat([live_df.reset_index(), supertrend], axis=1).set_index("date")
+            print("✅ Updated Live Data:")
+            print(live_df.tail())  # Display last few rows to confirm live updates
             plot_live_chart(live_df)
 
         time.sleep(10)  # Fetch data every 10 seconds
