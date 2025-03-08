@@ -135,7 +135,7 @@ def plot_weekly_data_single_graph(df):
     # Add Supertrend line
     fig.add_trace(go.Scatter(
         x=df.index,
-        y=df["SUPERT_7_3.0"],
+        y=df["SUPERT_10_2.0"],
         mode="lines",
         name="Supertrend",
         line=dict(dash="dash")
