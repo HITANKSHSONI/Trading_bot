@@ -59,46 +59,20 @@ except Exception as e:
     exit()
 
 # 🎯 Fetch Historical Stock Data from Angel One API (Only Market Hours)
-def fetch_historical_stock_data(symbol_token="3045", exchange="NSE", start_date=None, end_date=None):
-    """
-    Fetch historical stock data for the specified date range
-    
-    Parameters:
-    - symbol_token (str): Stock symbol token (default: "3045")
-    - exchange (str): Exchange name (default: "NSE")
-    - start_date (str): Start date in format 'YYYY-MM-DD' (default: 7 days ago)
-    - end_date (str): End date in format 'YYYY-MM-DD' (default: yesterday)
-    """
-    # Convert string dates to datetime if provided
-    if start_date:
-        start_date = datetime.datetime.strptime(start_date, "%Y-%m-%d")
-    else:
-        start_date = datetime.datetime.now() - datetime.timedelta(days=7)
-    
-    if end_date:
-        end_date = datetime.datetime.strptime(end_date, "%Y-%m-%d")
-    else:
-        end_date = datetime.datetime.now() - datetime.timedelta(days=1)
-    
-    # Validate dates
-    if start_date > end_date:
-        print("❌ Error: Start date cannot be after end date")
-        return None
-    
-    if end_date > datetime.datetime.now():
-        print("❌ Error: End date cannot be in the future")
-        return None
-    
-    # Format dates for API
-    from_date = start_date.strftime("%Y-%m-%d 09:15")  # Market opens at 09:15 AM IST
-    to_date = end_date.strftime("%Y-%m-%d 15:30")  # Market closes at 03:30 PM IST
+def fetch_historical_stock_data(symbol_token="3045", exchange="NSE"):
+    today = datetime.datetime.now()
+    last_week_start = today - datetime.timedelta(days=7)
+    last_week_end = today - datetime.timedelta(days=1)
+
+    from_date = last_week_start.strftime("%Y-%m-%d 09:15")  # Market opens at 09:15 AM IST
+    to_date = last_week_end.strftime("%Y-%m-%d 15:30")  # Market closes at 03:30 PM IST
 
     print(f"📅 Fetching data from {from_date} to {to_date}")
 
     payload = {
         "exchange": exchange,
         "symboltoken": symbol_token,
-        "interval": "FIFTEEN_MINUTE",
+        "interval": "FIVE_MINUTE",
         "fromdate": from_date,
         "todate": to_date
     }
@@ -133,19 +107,8 @@ def fetch_historical_stock_data(symbol_token="3045", exchange="NSE", start_date=
         print("❌ API returned no data!")
         return None
 
-# Example usage with date parameters
-print("\n=== Starting Backtesting ===")
-print("Enter date range for backtesting (YYYY-MM-DD):")
-
-# Get user input for date range
-start_date = input("Start Date (YYYY-MM-DD) or press Enter for 7 days ago: ").strip()
-end_date = input("End Date (YYYY-MM-DD) or press Enter for yesterday: ").strip()
-
-# Fetch Data with date range
-df = fetch_historical_stock_data(
-    start_date=start_date if start_date else None,
-    end_date=end_date if end_date else None
-)
+# Fetch Data for the last week
+df = fetch_historical_stock_data()
 
 if df is None or df.empty:
     print("⚠ No historical data available!")
@@ -217,14 +180,14 @@ def check_trend_change(current_trend, previous_trend):
     return current_trend != previous_trend
 
 # 🎯 Function to execute the trade using Angel One API (template for backtesting)
-def execute_trade(action, symbol_token, quantity, price):
+def execute_trade(action, symbol_token, quantity, price, time):
     if action == "buy":
         # Place buy order (backtesting: simply print)
-        print(f"Executing Buy Order for {symbol_token}, Quantity: {quantity}, Price: {price}")
+        print(f"Executing Buy Order for {symbol_token}, Quantity: {quantity}, Price: {price}, Time: {time}")
         # Integration with actual API would go here
     elif action == "sell":
         # Place sell order (backtesting: simply print)
-        print(f"Executing Sell Order for {symbol_token}, Quantity: {quantity}, Price: {price}")
+        print(f"Executing Sell Order for {symbol_token}, Quantity: {quantity}, Price: {price}, Time: {time}")
         # Integration with actual API would go here
 
 # 🎯 Backtesting logic with Stop Loss and Take Profit
@@ -253,51 +216,51 @@ def apply_stop_loss_take_profit(df, symbol_token="3045", quantity=1):
             if position != "sell":
                 if position == "buy":
                     # Close buy position (Take Profit) because of trend change
-                    execute_trade("sell", symbol_token, quantity, current_candle['close'])
+                    execute_trade("sell", symbol_token, quantity, current_candle['close'], current_candle.name)
                     total_profit_loss += (current_candle['close'] - entry_price) * quantity
                     position = None  # Close the buy position
                     entry_price = None
-                    print(f"💰 Take Profit on Buy at {current_candle['close']} (Trend changed to Bearish)")
+                    print(f"💰 Take Profit on Buy at {current_candle['close']} (Trend changed to Bearish) at {current_candle.name}")
                 # Open a new sell position
-                execute_trade("sell", symbol_token, quantity, current_candle['close'])
+                execute_trade("sell", symbol_token, quantity, current_candle['close'], current_candle.name)
                 position = "sell"
                 entry_price = current_candle['close']
                 stop_loss = last_3_candles_high  # Set stop loss as the high of the last 3 candles
-                print(f"📉 New Sell Position at {entry_price}, Stop Loss set to {stop_loss}")
+                print(f"📉 New Sell Position at {entry_price}, Stop Loss set to {stop_loss} at {current_candle.name}")
         
         # Buy signal: When Supertrend is below the price (interpreted here as a bullish indicator)
         elif supertrend_line < current_candle['close']:
             if position != "buy":
                 if position == "sell":
                     # Close sell position (Take Profit) because of trend change
-                    execute_trade("buy", symbol_token, quantity, current_candle['close'])
+                    execute_trade("buy", symbol_token, quantity, current_candle['close'], current_candle.name)
                     total_profit_loss += (entry_price - current_candle['close']) * quantity
                     position = None  # Close the sell position
                     entry_price = None
-                    print(f"💰 Take Profit on Sell at {current_candle['close']} (Trend changed to Bullish)")
+                    print(f"💰 Take Profit on Sell at {current_candle['close']} (Trend changed to Bullish) at {current_candle.name}")
                 # Open a new buy position
-                execute_trade("buy", symbol_token, quantity, current_candle['close'])
+                execute_trade("buy", symbol_token, quantity, current_candle['close'], current_candle.name)
                 position = "buy"
                 entry_price = current_candle['close']
                 stop_loss = last_3_candles_low  # Set stop loss as the low of the last 3 candles
-                print(f"📈 New Buy Position at {entry_price}, Stop Loss set to {stop_loss}")
+                print(f"📈 New Buy Position at {entry_price}, Stop Loss set to {stop_loss} at {current_candle.name}")
 
         # Check for stop loss hit
         if position == "buy" and current_candle['low'] <= stop_loss:
             # Stop loss hit on Buy position
-            execute_trade("sell", symbol_token, quantity, stop_loss)  # Close at stop loss price
+            execute_trade("sell", symbol_token, quantity, stop_loss, current_candle.name)  # Close at stop loss price
             total_profit_loss += (stop_loss - entry_price) * quantity
             position = None
             entry_price = None
-            print(f"❌ Stop Loss Hit on Buy at {stop_loss}, Position Closed")
+            print(f"❌ Stop Loss Hit on Buy at {stop_loss}, Position Closed at {current_candle.name}")
 
         if position == "sell" and current_candle['high'] >= stop_loss:
             # Stop loss hit on Sell position
-            execute_trade("buy", symbol_token, quantity, stop_loss)  # Close at stop loss price
+            execute_trade("buy", symbol_token, quantity, stop_loss, current_candle.name)  # Close at stop loss price
             total_profit_loss += (entry_price - stop_loss) * quantity
             position = None
             entry_price = None
-            print(f"❌ Stop Loss Hit on Sell at {stop_loss}, Position Closed")
+            print(f"❌ Stop Loss Hit on Sell at {stop_loss}, Position Closed at {current_candle.name}")
 
     # Print total profit/loss
     print(f"Total Profit/Loss for the session: {total_profit_loss}")
