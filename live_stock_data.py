@@ -9,10 +9,10 @@ import time
 from dotenv import load_dotenv
 import pandas_ta as ta  # Import pandas_ta
 
-# ✅ Fix UnicodeEncodeError for Windows
+# Fix UnicodeEncodeError for Windows
 sys.stdout.reconfigure(encoding='utf-8')
 
-# 🎯 Load environment variables from .env file
+# Load environment variables from .env file
 load_dotenv()
 
 # Angel One API credentials
@@ -33,7 +33,6 @@ headers = {
     "X-SourceID": "WEB"
 }
 
-# ✅ Login Function
 def login():
     url = "https://apiconnect.angelone.in/rest/auth/angelbroking/user/v1/loginByPassword"
     payload = {
@@ -52,7 +51,6 @@ def login():
         print("❌ Login failed!", response_data.get("message"))
         exit()
 
-# ✅ Fetch Only Past Day's Historical Data
 def fetch_historical_stock_data(symbol_token="3045", exchange="NSE"):
     today = datetime.datetime.now()
     past_day = today - datetime.timedelta(days=1)  # Fetch only yesterday's data
@@ -74,7 +72,6 @@ def fetch_historical_stock_data(symbol_token="3045", exchange="NSE"):
     if "data" in response_data and response_data["data"]:
         df = pd.DataFrame(response_data["data"], columns=["date", "open", "high", "low", "close", "volume"])
         df["date"] = pd.to_datetime(df["date"])
-        # Historical data is already tz-aware; ensure the index is set accordingly
         df.set_index("date", inplace=True)
         print("✅ Historical data fetched successfully:")
         print(df.tail())
@@ -83,7 +80,6 @@ def fetch_historical_stock_data(symbol_token="3045", exchange="NSE"):
         print("❌ API returned no historical data!")
         return None
 
-# ✅ Fetch Live Data
 def fetch_live_stock_data(symbol="RELIANCE", exchange="NSE"):
     url = "https://apiconnect.angelone.in/rest/secure/angelbroking/market/v1/quote/"
     payload = {"mode": "FULL", "exchangeTokens": {exchange: ["3045"]}}
@@ -96,11 +92,9 @@ def fetch_live_stock_data(symbol="RELIANCE", exchange="NSE"):
             if market_data:
                 df = pd.DataFrame(market_data)
                 df.rename(columns={"exchFeedTime": "date"}, inplace=True)
-                # Convert the 'date' column to datetime and localize it to Asia/Kolkata
                 df["date"] = pd.to_datetime(df["date"])
                 if df["date"].dt.tz is None:
                     df["date"] = df["date"].dt.tz_localize("Asia/Kolkata")
-                # Filter only the required columns
                 required_cols = ["date", "open", "high", "low", "close", "volume"]
                 df = df.filter(items=required_cols)
                 print("✅ Live data fetched successfully:")
@@ -111,70 +105,99 @@ def fetch_live_stock_data(symbol="RELIANCE", exchange="NSE"):
     
     return None
 
-# ✅ Append Live Data to DataFrame
 def update_live_data(live_df, new_data):
     if new_data is not None and not new_data.empty:
         required_cols = ["date", "open", "high", "low", "close", "volume"]
-        new_data = new_data.filter(items=required_cols)
-        # Reset index of live_df to merge using the 'date' column
-        if not live_df.empty:
-            live_df_reset = live_df.reset_index()
+        new_data = new_data.filter(items=required_cols).set_index("date")
+        if live_df.empty:
+            combined = new_data
         else:
-            live_df_reset = pd.DataFrame(columns=required_cols)
-        combined = pd.concat([live_df_reset, new_data], ignore_index=True)
-        combined.drop_duplicates(subset="date", inplace=True)
-        combined.sort_values("date", inplace=True)
-        combined.set_index("date", inplace=True)
-        return combined.tail(100)  # Keep only latest 100 records
+            combined = pd.concat([live_df, new_data])
+            combined = combined[~combined.index.duplicated(keep='last')]
+            combined.sort_index(inplace=True)
+        return combined.tail(100)  # Keep only the latest 100 records
     return live_df
 
-# ✅ Plot Candlestick Chart with Supertrend
-def plot_live_chart(df):
-    fig = go.Figure(data=[go.Candlestick(
-        x=df.index, open=df["open"], high=df["high"], low=df["low"], close=df["close"]
+def create_figure(live_df):
+    # Create a FigureWidget for candlestick and Supertrend
+    fig = go.FigureWidget(data=[go.Candlestick(
+        x=live_df.index,
+        open=live_df["open"],
+        high=live_df["high"],
+        low=live_df["low"],
+        close=live_df["close"],
+        name="Candlestick"
     )])
     
-    if "SUPERT_10_2.0" in df.columns:
-        fig.add_trace(go.Scatter(
-            x=df.index, y=df["SUPERT_10_2.0"], mode="lines", name="Supertrend", line=dict(dash="dash", color="blue")
-        ))
+    if "SUPERT_10_2.0" in live_df.columns:
+        fig.add_scatter(x=live_df.index, y=live_df["SUPERT_10_2.0"],
+                        mode="lines", name="Supertrend",
+                        line=dict(dash="dash", color="blue"))
     
-    # Calculate y-axis range with some padding
-    y_min = df["low"].min() * 0.98  # 2% lower than the minimum
-    y_max = df["high"].max() * 1.02  # 2% higher than the maximum
-
+    y_min = live_df["low"].min() * 0.98
+    y_max = live_df["high"].max() * 1.02
     fig.update_layout(title="Live Stock Data with Supertrend",
                       xaxis_title="Time",
                       yaxis_title="Price",
                       xaxis=dict(type="date"),
                       yaxis=dict(range=[y_min, y_max]))
-    
-    fig.show()
+    return fig
 
-# ✅ Main Function
+def update_figure(fig, live_df):
+    # Update the candlestick trace (trace 0)
+    fig.data[0].x = live_df.index
+    fig.data[0].open = live_df["open"]
+    fig.data[0].high = live_df["high"]
+    fig.data[0].low = live_df["low"]
+    fig.data[0].close = live_df["close"]
+    
+    # Update or add the Supertrend trace (if available)
+    if "SUPERT_10_2.0" in live_df.columns:
+        if len(fig.data) > 1:
+            fig.data[1].x = live_df.index
+            fig.data[1].y = live_df["SUPERT_10_2.0"]
+        else:
+            fig.add_scatter(x=live_df.index, y=live_df["SUPERT_10_2.0"],
+                            mode="lines", name="Supertrend",
+                            line=dict(dash="dash", color="blue"))
+    else:
+        # If Supertrend is not available and a trace exists, remove it.
+        if len(fig.data) > 1:
+            fig.data = tuple([fig.data[0]])
+    
+    y_min = live_df["low"].min() * 0.98
+    y_max = live_df["high"].max() * 1.02
+    fig.update_layout(yaxis=dict(range=[y_min, y_max]))
+
 def main():
     login()
     live_df = fetch_historical_stock_data()
     if live_df is None:
         live_df = pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
+        live_df.index.name = "date"
     
-    # Calculate initial Supertrend on historical data
+    # Calculate initial Supertrend and join with live_df
     supertrend = ta.supertrend(live_df['high'], live_df['low'], live_df['close'], length=10, multiplier=2.0)
-    live_df = pd.concat([live_df, supertrend], axis=1)
-    plot_live_chart(live_df)
+    live_df = live_df.join(supertrend)
+    
+    # Create the FigureWidget once and display it
+    fig = create_figure(live_df)
+    fig.show()  # Opens the graph once
     
     while True:
         new_data = fetch_live_stock_data()
         live_df = update_live_data(live_df, new_data)
-
+        
         if not live_df.empty:
-            # Recalculate Supertrend with updated data
+            # Recalculate Supertrend, drop any old Supertrend columns, and join the new ones
             supertrend = ta.supertrend(live_df['high'], live_df['low'], live_df['close'], length=10, multiplier=2.0)
-            live_df = pd.concat([live_df.reset_index(), supertrend], axis=1).set_index("date")
+            live_df = live_df.drop(columns=supertrend.columns, errors='ignore')
+            live_df = live_df.join(supertrend)
             print("✅ Updated Live Data:")
-            print(live_df.tail())  # Display last few rows to confirm live updates
-            plot_live_chart(live_df)
-
+            print(live_df.tail())
+            
+            update_figure(fig, live_df)
+        
         time.sleep(10)  # Fetch data every 10 seconds
 
 if __name__ == "__main__":
