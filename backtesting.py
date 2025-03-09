@@ -121,7 +121,10 @@ df.ffill(inplace=True)
 supertrend = ta.supertrend(df['high'], df['low'], df['close'], length=10, multiplier=2.0)
 df = pd.concat([df, supertrend], axis=1)
 
-# 🎯 Plot the Entire Week's Data in One Graph Using Rangebreaks with Adjusted Y-Axis
+# Generate red/green signals based on Supertrend and closing price
+df['signal'] = np.where(df['close'] > df["SUPERT_10_2.0"], 'green', 'red')
+
+# 🎯 Plot the Entire Week's Data with Supertrend and Signal Markers
 def plot_weekly_data_single_graph(df):
     fig = go.Figure()
     
@@ -135,7 +138,7 @@ def plot_weekly_data_single_graph(df):
         name="Candlestick"
     ))
     
-    # Add Supertrend line
+    # Add Supertrend line trace
     fig.add_trace(go.Scatter(
         x=df.index,
         y=df["SUPERT_10_2.0"],
@@ -144,130 +147,133 @@ def plot_weekly_data_single_graph(df):
         line=dict(dash="dash")
     ))
     
+    # Add signal markers: green for buy, red for sell
+    fig.add_trace(go.Scatter(
+        x=df.index,
+        y=df["close"],
+        mode='markers',
+        marker=dict(
+             color=[ 'green' if s == 'green' else 'red' for s in df['signal'] ],
+             size=8,
+             symbol='circle'
+        ),
+        name='Signals'
+    ))
+    
     # Calculate y-axis range with some padding
-    y_min = df["low"].min() * 0.98  # 2% lower than the minimum
-    y_max = df["high"].max() * 1.02  # 2% higher than the maximum
+    y_min = df["low"].min() * 0.98
+    y_max = df["high"].max() * 1.02
 
     fig.update_layout(
-        title="Weekly Stock Data with Supertrend (Intraday: 9:15 to 15:30)",
+        title="Weekly Stock Data with Supertrend and Signals (Intraday: 9:15 to 15:30)",
         xaxis_title="Date/Time",
         yaxis_title="Price",
         yaxis=dict(range=[y_min, y_max])
     )
     
-    # Use rangebreaks to remove non-trading hours and weekends from the x-axis
+    # Use rangebreaks to remove non-trading hours and weekends
     fig.update_xaxes(
         rangebreaks=[
-            # Hide weekends
             dict(bounds=["sat", "mon"]),
-            # Hide hours outside trading session (using decimal hours: 9:15 = 9.25, 15:30 = 15.5)
             dict(bounds=[15.5, 9.25], pattern="hour")
         ]
     )
     
     fig.show()
 
-# Show the plot in one graph
+# Show the plot
 plot_weekly_data_single_graph(df)
 
 # ───────────────────────────────────────────────
-# BUY/SELL LOGIC (Backtesting with Stop Loss and Take Profit)
+# BUY/SELL LOGIC (Backtesting with 1:2 Risk-to-Reward Ratio)
 # ───────────────────────────────────────────────
 
-# 🎯 Helper function to check the trend direction (not used directly but available for extension)
-def check_trend_change(current_trend, previous_trend):
-    # Returns True if there is a change in trend
-    return current_trend != previous_trend
-
-# 🎯 Function to execute the trade using Angel One API (template for backtesting)
+# Helper function to simulate trade execution (for backtesting)
 def execute_trade(action, symbol_token, quantity, price, time):
     if action == "buy":
-        # Place buy order (backtesting: simply print)
         print(f"Executing Buy Order for {symbol_token}, Quantity: {quantity}, Price: {price}, Time: {time}")
-        # Integration with actual API would go here
     elif action == "sell":
-        # Place sell order (backtesting: simply print)
         print(f"Executing Sell Order for {symbol_token}, Quantity: {quantity}, Price: {price}, Time: {time}")
-        # Integration with actual API would go here
 
-# 🎯 Backtesting logic with Stop Loss and Take Profit
+# Backtesting function with 1:2 risk-to-reward ratio integrated
 def apply_stop_loss_take_profit(df, symbol_token="3045", quantity=1):
-    # Initialize positions
-    position = None  # No position to start
+    position = None    # 'long' or 'short'
+    entry_price = None
     stop_loss = None
-    entry_price = None  # Track entry price for P&L calculation
-    total_profit_loss = 0  # Track total profit/loss
+    take_profit = None
+    total_profit_loss = 0
 
-    # Iterate through each row of the dataframe
-    for i in range(2, len(df)):  # Starting from 2 because we need at least 2 previous candles
+    # Start loop from index 3 to ensure we have 3 candles for SL calculation
+    for i in range(3, len(df)):
         current_candle = df.iloc[i]
-        previous_candle = df.iloc[i-1]
-        # Use the Supertrend column computed earlier (using multiplier 2.0)
         supertrend_line = current_candle['SUPERT_10_2.0']
-        supertrend_prev_line = previous_candle['SUPERT_10_2.0']
         
-        # Get the recent 3 candle lows and highs for stop loss
-        last_3_candles_low = df['low'].iloc[i-3:i].min()
-        last_3_candles_high = df['high'].iloc[i-3:i].max()
+        # Generate signal: green if close > supertrend (buy), red if below (sell)
+        signal = "green" if current_candle['close'] > supertrend_line else "red"
 
-        # Identify trend:
-        # Sell signal: When Supertrend is above the price (interpreted here as a bearish indicator)
-        if supertrend_line > current_candle['close']:
-            if position != "sell":
-                if position == "buy":
-                    # Close buy position (Take Profit) because of trend change
+        if position is None:
+            # No open position: open new trade based on signal
+            if signal == "green":
+                entry_price = current_candle['close']
+                # For long positions, use the lowest low of last 3 candles as stop loss
+                last_3_candles_low = df['low'].iloc[i-3:i].min()
+                stop_loss = last_3_candles_low
+                risk = entry_price - stop_loss
+                take_profit = entry_price + 2 * risk  # 1:2 risk-to-reward ratio
+                position = "long"
+                execute_trade("buy", symbol_token, quantity, entry_price, current_candle.name)
+                print(f"📈 New Buy Position at {entry_price}, Stop Loss: {stop_loss}, Take Profit: {take_profit} at {current_candle.name}")
+            elif signal == "red":
+                entry_price = current_candle['close']
+                # For short positions, use the highest high of last 3 candles as stop loss
+                last_3_candles_high = df['high'].iloc[i-3:i].max()
+                stop_loss = last_3_candles_high
+                risk = stop_loss - entry_price
+                take_profit = entry_price - 2 * risk  # 1:2 risk-to-reward ratio
+                position = "short"
+                execute_trade("sell", symbol_token, quantity, entry_price, current_candle.name)
+                print(f"📉 New Sell Position at {entry_price}, Stop Loss: {stop_loss}, Take Profit: {take_profit} at {current_candle.name}")
+        else:
+            # Position is open, check for exit conditions
+            if position == "long":
+                # Check if take profit is reached
+                if current_candle['close'] >= take_profit:
                     execute_trade("sell", symbol_token, quantity, current_candle['close'], current_candle.name)
-                    total_profit_loss += (current_candle['close'] - entry_price) * quantity
-                    position = None  # Close the buy position
+                    profit = (current_candle['close'] - entry_price) * quantity
+                    total_profit_loss += profit
+                    print(f"💰 Take Profit hit on Buy at {current_candle['close']} (Profit: {profit}) at {current_candle.name}")
+                    position = None
                     entry_price = None
-                    print(f"💰 Take Profit on Buy at {current_candle['close']} (Trend changed to Bearish) at {current_candle.name}")
-                # Open a new sell position
-                execute_trade("sell", symbol_token, quantity, current_candle['close'], current_candle.name)
-                position = "sell"
-                entry_price = current_candle['close']
-                stop_loss = last_3_candles_high  # Set stop loss as the high of the last 3 candles
-                print(f"📉 New Sell Position at {entry_price}, Stop Loss set to {stop_loss} at {current_candle.name}")
-        
-        # Buy signal: When Supertrend is below the price (interpreted here as a bullish indicator)
-        elif supertrend_line < current_candle['close']:
-            if position != "buy":
-                if position == "sell":
-                    # Close sell position (Take Profit) because of trend change
+                # Check if stop loss is hit
+                elif current_candle['low'] <= stop_loss:
+                    execute_trade("sell", symbol_token, quantity, stop_loss, current_candle.name)
+                    loss = (stop_loss - entry_price) * quantity
+                    total_profit_loss += loss
+                    print(f"❌ Stop Loss hit on Buy at {stop_loss} (Loss: {loss}) at {current_candle.name}")
+                    position = None
+                    entry_price = None
+            elif position == "short":
+                # For short positions, take profit if price falls to target
+                if current_candle['close'] <= take_profit:
                     execute_trade("buy", symbol_token, quantity, current_candle['close'], current_candle.name)
-                    total_profit_loss += (entry_price - current_candle['close']) * quantity
-                    position = None  # Close the sell position
+                    profit = (entry_price - current_candle['close']) * quantity
+                    total_profit_loss += profit
+                    print(f"💰 Take Profit hit on Sell at {current_candle['close']} (Profit: {profit}) at {current_candle.name}")
+                    position = None
                     entry_price = None
-                    print(f"💰 Take Profit on Sell at {current_candle['close']} (Trend changed to Bullish) at {current_candle.name}")
-                # Open a new buy position
-                execute_trade("buy", symbol_token, quantity, current_candle['close'], current_candle.name)
-                position = "buy"
-                entry_price = current_candle['close']
-                stop_loss = last_3_candles_low  # Set stop loss as the low of the last 3 candles
-                print(f"📈 New Buy Position at {entry_price}, Stop Loss set to {stop_loss} at {current_candle.name}")
+                # Check stop loss for short positions
+                elif current_candle['high'] >= stop_loss:
+                    execute_trade("buy", symbol_token, quantity, stop_loss, current_candle.name)
+                    loss = (entry_price - stop_loss) * quantity
+                    total_profit_loss += loss
+                    print(f"❌ Stop Loss hit on Sell at {stop_loss} (Loss: {loss}) at {current_candle.name}")
+                    position = None
+                    entry_price = None
 
-        # Check for stop loss hit
-        if position == "buy" and current_candle['low'] <= stop_loss:
-            # Stop loss hit on Buy position
-            execute_trade("sell", symbol_token, quantity, stop_loss, current_candle.name)  # Close at stop loss price
-            total_profit_loss += (stop_loss - entry_price) * quantity
-            position = None
-            entry_price = None
-            print(f"❌ Stop Loss Hit on Buy at {stop_loss}, Position Closed at {current_candle.name}")
-
-        if position == "sell" and current_candle['high'] >= stop_loss:
-            # Stop loss hit on Sell position
-            execute_trade("buy", symbol_token, quantity, stop_loss, current_candle.name)  # Close at stop loss price
-            total_profit_loss += (entry_price - stop_loss) * quantity
-            position = None
-            entry_price = None
-            print(f"❌ Stop Loss Hit on Sell at {stop_loss}, Position Closed at {current_candle.name}")
-
-    # Print total profit/loss
     print(f"Total Profit/Loss for the session: {total_profit_loss}")
 
 # ───────────────────────────────────────────────
-# Execute the Backtesting Buy/Sell Logic on Historical Data
+# Execute Backtesting Strategy
 # ───────────────────────────────────────────────
-
-print("\n=== Backtesting Buy/Sell Strategy ===")
+print("\n=== Backtesting Buy/Sell Strategy with 1:2 Risk-to-Reward Ratio ===")
 apply_stop_loss_take_profit(df)
