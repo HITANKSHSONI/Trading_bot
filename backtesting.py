@@ -59,13 +59,41 @@ except Exception as e:
     exit()
 
 # 🎯 Fetch Historical Stock Data from Angel One API (Only Market Hours)
-def fetch_historical_stock_data(symbol_token="3045", exchange="NSE"):
-    today = datetime.datetime.now()
-    last_week_start = today - datetime.timedelta(days=7)
-    last_week_end = today - datetime.timedelta(days=1)
+def fetch_historical_stock_data(symbol_token="3045", exchange="NSE", start_date=None, end_date=None):
+    """
+    Fetch historical stock data for the specified date range
+    
+    Parameters:
+    - symbol_token (str): Stock symbol token (default: "3045")
+    - exchange (str): Exchange name (default: "NSE")
+    - start_date (str): Start date in format 'YYYY-MM-DD' (default: 7 days ago)
+    - end_date (str): End date in format 'YYYY-MM-DD' (default: yesterday)
+    """
+    # Convert string dates to datetime if provided
+    if start_date:
+        start_date = datetime.datetime.strptime(start_date, "%Y-%m-%d")
+    else:
+        start_date = datetime.datetime.now() - datetime.timedelta(days=7)
+    
+    if end_date:
+        end_date = datetime.datetime.strptime(end_date, "%Y-%m-%d")
+    else:
+        end_date = datetime.datetime.now() - datetime.timedelta(days=1)
+    
+    # Validate dates
+    if start_date > end_date:
+        print("❌ Error: Start date cannot be after end date")
+        return None
+    
+    if end_date > datetime.datetime.now():
+        print("❌ Error: End date cannot be in the future")
+        return None
+    
+    # Format dates for API
+    from_date = start_date.strftime("%Y-%m-%d 09:15")  # Market opens at 09:15 AM IST
+    to_date = end_date.strftime("%Y-%m-%d 15:30")  # Market closes at 03:30 PM IST
 
-    from_date = last_week_start.strftime("%Y-%m-%d 09:15")  # Market opens at 09:15 AM IST
-    to_date = last_week_end.strftime("%Y-%m-%d 15:30")  # Market closes at 03:30 PM IST
+    print(f"📅 Fetching data from {from_date} to {to_date}")
 
     payload = {
         "exchange": exchange,
@@ -99,14 +127,25 @@ def fetch_historical_stock_data(symbol_token="3045", exchange="NSE"):
         df.set_index("date", inplace=True)
         df = df[~df.index.weekday.isin([5, 6])]  # Remove Saturday (5) & Sunday (6)
 
-        print("✅ Historical Data Fetched Successfully!")
+        print(f"✅ Historical Data Fetched Successfully! ({len(df)} candles)")
         return df
     else:
         print("❌ API returned no data!")
         return None
 
-# Fetch Data
-df = fetch_historical_stock_data()
+# Example usage with date parameters
+print("\n=== Starting Backtesting ===")
+print("Enter date range for backtesting (YYYY-MM-DD):")
+
+# Get user input for date range
+start_date = input("Start Date (YYYY-MM-DD) or press Enter for 7 days ago: ").strip()
+end_date = input("End Date (YYYY-MM-DD) or press Enter for yesterday: ").strip()
+
+# Fetch Data with date range
+df = fetch_historical_stock_data(
+    start_date=start_date if start_date else None,
+    end_date=end_date if end_date else None
+)
 
 if df is None or df.empty:
     print("⚠ No historical data available!")
@@ -117,10 +156,7 @@ df.ffill(inplace=True)
 
 # 🎯 Calculate Supertrend Indicator using pandas_ta
 supertrend = ta.supertrend(df['high'], df['low'], df['close'], length=10, multiplier=2.0)
-# The supertrend function returns: SUPERTd_10_2.0 (direction), SUPERT_10_2.0 (trend line), SUPERTl_10_2.0 (lower band), SUPERTh_10_2.0 (upper band)
-# We only need the trend line and direction for our strategy
-df['SUPERT_10_2.0'] = supertrend['SUPERT_10_2.0']  # Trend line
-df['SUPERT_10_2.0_direction'] = supertrend['SUPERTd_10_2.0']  # Direction (1 for bullish, -1 for bearish)
+df = pd.concat([df, supertrend], axis=1)
 
 # 🎯 Plot the Entire Week's Data in One Graph Using Rangebreaks with Adjusted Y-Axis
 def plot_weekly_data_single_graph(df):
@@ -136,31 +172,18 @@ def plot_weekly_data_single_graph(df):
         name="Candlestick"
     ))
     
-    # Split Supertrend line by direction for coloring
-    df['datetime'] = df.index  # Temporary column for plotting
-    bullish = df[df['SUPERT_10_2.0_direction'] == 1]
-    bearish = df[df['SUPERT_10_2.0_direction'] == -1]
-    
-    # Add Supertrend lines with colors
+    # Add Supertrend line
     fig.add_trace(go.Scatter(
-        x=bullish['datetime'],
-        y=bullish['SUPERT_10_2.0'],
-        mode='lines',
-        line=dict(color='green', dash='dash'),
-        name='Supertrend (Bullish)'
-    ))
-    
-    fig.add_trace(go.Scatter(
-        x=bearish['datetime'],
-        y=bearish['SUPERT_10_2.0'],
-        mode='lines',
-        line=dict(color='red', dash='dash'),
-        name='Supertrend (Bearish)'
+        x=df.index,
+        y=df["SUPERT_10_2.0"],
+        mode="lines",
+        name="Supertrend",
+        line=dict(dash="dash")
     ))
     
     # Calculate y-axis range with some padding
-    y_min = min(df["low"].min(), df["SUPERT_10_2.0"].min()) * 0.98  # 2% lower
-    y_max = max(df["high"].max(), df["SUPERT_10_2.0"].max()) * 1.02  # 2% higher
+    y_min = df["low"].min() * 0.98  # 2% lower than the minimum
+    y_max = df["high"].max() * 1.02  # 2% higher than the maximum
 
     fig.update_layout(
         title="Weekly Stock Data with Supertrend (Intraday: 9:15 to 15:30)",
@@ -179,7 +202,6 @@ def plot_weekly_data_single_graph(df):
         ]
     )
     
-    df.drop('datetime', axis=1, inplace=True)  # Remove temporary column
     fig.show()
 
 # Show the plot in one graph
@@ -189,9 +211,10 @@ plot_weekly_data_single_graph(df)
 # BUY/SELL LOGIC (Backtesting with Stop Loss and Take Profit)
 # ───────────────────────────────────────────────
 
-# 🎯 Helper function to check the trend direction
-def check_trend_change(current_direction, previous_direction):
-    return current_direction != previous_direction
+# 🎯 Helper function to check the trend direction (not used directly but available for extension)
+def check_trend_change(current_trend, previous_trend):
+    # Returns True if there is a change in trend
+    return current_trend != previous_trend
 
 # 🎯 Function to execute the trade using Angel One API (template for backtesting)
 def execute_trade(action, symbol_token, quantity, price):
@@ -216,61 +239,61 @@ def apply_stop_loss_take_profit(df, symbol_token="3045", quantity=1):
     for i in range(2, len(df)):  # Starting from 2 because we need at least 2 previous candles
         current_candle = df.iloc[i]
         previous_candle = df.iloc[i-1]
-        
-        # Get current and previous trend directions
-        current_direction = current_candle['SUPERT_10_2.0_direction']
-        previous_direction = previous_candle['SUPERT_10_2.0_direction']
+        # Use the Supertrend column computed earlier (using multiplier 2.0)
+        supertrend_line = current_candle['SUPERT_10_2.0']
+        supertrend_prev_line = previous_candle['SUPERT_10_2.0']
         
         # Get the recent 3 candle lows and highs for stop loss
         last_3_candles_low = df['low'].iloc[i-3:i].min()
         last_3_candles_high = df['high'].iloc[i-3:i].max()
 
-        # Check for trend direction change
-        if check_trend_change(current_direction, previous_direction):
-            # Bearish trend change
-            if current_direction == -1:
-                if position != "sell":
-                    if position == "buy":
-                        # Close buy position
-                        execute_trade("sell", symbol_token, quantity, current_candle['close'])
-                        total_profit_loss += (current_candle['close'] - entry_price) * quantity
-                        position = None
-                        entry_price = None
-                        print(f"💰 Take Profit on Buy at {current_candle['close']} (Trend changed to Bearish)")
-                    # Open new sell position
+        # Identify trend:
+        # Sell signal: When Supertrend is above the price (interpreted here as a bearish indicator)
+        if supertrend_line > current_candle['close']:
+            if position != "sell":
+                if position == "buy":
+                    # Close buy position (Take Profit) because of trend change
                     execute_trade("sell", symbol_token, quantity, current_candle['close'])
-                    position = "sell"
-                    entry_price = current_candle['close']
-                    stop_loss = last_3_candles_high
-                    print(f"📉 New Sell Position at {entry_price}, Stop Loss set to {stop_loss}")
-            
-            # Bullish trend change
-            elif current_direction == 1:
-                if position != "buy":
-                    if position == "sell":
-                        # Close sell position
-                        execute_trade("buy", symbol_token, quantity, current_candle['close'])
-                        total_profit_loss += (entry_price - current_candle['close']) * quantity
-                        position = None
-                        entry_price = None
-                        print(f"💰 Take Profit on Sell at {current_candle['close']} (Trend changed to Bullish)")
-                    # Open new buy position
+                    total_profit_loss += (current_candle['close'] - entry_price) * quantity
+                    position = None  # Close the buy position
+                    entry_price = None
+                    print(f"💰 Take Profit on Buy at {current_candle['close']} (Trend changed to Bearish)")
+                # Open a new sell position
+                execute_trade("sell", symbol_token, quantity, current_candle['close'])
+                position = "sell"
+                entry_price = current_candle['close']
+                stop_loss = last_3_candles_high  # Set stop loss as the high of the last 3 candles
+                print(f"📉 New Sell Position at {entry_price}, Stop Loss set to {stop_loss}")
+        
+        # Buy signal: When Supertrend is below the price (interpreted here as a bullish indicator)
+        elif supertrend_line < current_candle['close']:
+            if position != "buy":
+                if position == "sell":
+                    # Close sell position (Take Profit) because of trend change
                     execute_trade("buy", symbol_token, quantity, current_candle['close'])
-                    position = "buy"
-                    entry_price = current_candle['close']
-                    stop_loss = last_3_candles_low
-                    print(f"📈 New Buy Position at {entry_price}, Stop Loss set to {stop_loss}")
+                    total_profit_loss += (entry_price - current_candle['close']) * quantity
+                    position = None  # Close the sell position
+                    entry_price = None
+                    print(f"💰 Take Profit on Sell at {current_candle['close']} (Trend changed to Bullish)")
+                # Open a new buy position
+                execute_trade("buy", symbol_token, quantity, current_candle['close'])
+                position = "buy"
+                entry_price = current_candle['close']
+                stop_loss = last_3_candles_low  # Set stop loss as the low of the last 3 candles
+                print(f"📈 New Buy Position at {entry_price}, Stop Loss set to {stop_loss}")
 
         # Check for stop loss hit
         if position == "buy" and current_candle['low'] <= stop_loss:
-            execute_trade("sell", symbol_token, quantity, stop_loss)
+            # Stop loss hit on Buy position
+            execute_trade("sell", symbol_token, quantity, stop_loss)  # Close at stop loss price
             total_profit_loss += (stop_loss - entry_price) * quantity
             position = None
             entry_price = None
             print(f"❌ Stop Loss Hit on Buy at {stop_loss}, Position Closed")
 
         if position == "sell" and current_candle['high'] >= stop_loss:
-            execute_trade("buy", symbol_token, quantity, stop_loss)
+            # Stop loss hit on Sell position
+            execute_trade("buy", symbol_token, quantity, stop_loss)  # Close at stop loss price
             total_profit_loss += (entry_price - stop_loss) * quantity
             position = None
             entry_price = None
