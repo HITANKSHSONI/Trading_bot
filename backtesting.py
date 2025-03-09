@@ -59,7 +59,7 @@ except Exception as e:
     exit()
 
 # 🎯 Fetch Historical Stock Data from Angel One API (Only Market Hours)
-def fetch_historical_stock_data(symbol_token="3045", exchange="NSE"):
+def fetch_historical_stock_data(symbol_token="99926000", exchange="NSE"):
     today = datetime.datetime.now()
     last_week_start = today - datetime.timedelta(days=7)
     last_week_end = today - datetime.timedelta(days=1)
@@ -196,7 +196,7 @@ def execute_trade(action, symbol_token, quantity, price, time):
         print(f"Executing Sell Order for {symbol_token}, Quantity: {quantity}, Price: {price}, Time: {time}")
 
 # Backtesting function with 1:2 risk-to-reward ratio integrated
-def apply_stop_loss_take_profit(df, symbol_token="3045", quantity=1):
+def apply_stop_loss_take_profit(df, symbol_token="99926000", quantity=100):
     position = None    # 'long' or 'short'
     entry_price = None
     stop_loss = None
