@@ -69,7 +69,7 @@ def fetch_historical_stock_data(symbol_token="3045", exchange="NSE"):
     payload = {
         "exchange": exchange,
         "symboltoken": symbol_token,
-        "interval": "FIFTEEN_MINUTE",
+        "interval": "FIVE_MINUTE",
         "fromdate": from_date,
         "todate": to_date
     }
