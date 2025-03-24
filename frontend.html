@@ -380,20 +380,7 @@ header h1 {
                 <p>Select a stock to view the option chain.</p>
             </div>
         </div>
-        <div class="supertrend-indicator">
-            <h2>Supertrend Indicator</h2>
-            <div class="indicator-settings">
-                <label for="stLength">Length:</label>
-                <input type="number" id="stLength" value="10">
-                <label for="stFactor">Factor:</label>
-                <input type="number" id="stFactor" value="3">
-                <button id="applySupertrend">Apply Supertrend</button>
-            </div>
-            <div id="supertrendDisplay">
-                <p>Supertrend indicator will be shown here.</p>
-            </div>
-        </div>
-
+       
         <!-- Order Form Section -->
         <div class="order-form">
             <h2>Place Order</h2>
@@ -451,10 +438,6 @@ async function loadJsonData(filePath) {
 
 // Variable to store the selected stock's token
 let selectedStockToken = null;
-
-// Variables for Supertrend
-let supertrendLength = 10; // Default value
-let supertrendFactor = 3;  // Default value
 
 // Variables for order form
 let selectedTradingSymbol = null;
@@ -787,6 +770,24 @@ document.addEventListener('DOMContentLoaded', function() {
         applySupertrendButton.addEventListener('click', handleSupertrendCalculation);
     }
 });
+
+const socket = io("http://localhost:5000");
+
+socket.on("log", (message) => {
+    const logContainer = document.getElementById("logContainer");
+    if (logContainer) {
+        const logEntry = document.createElement("p");
+        logEntry.textContent = message;
+        logContainer.appendChild(logEntry);
+    }
+});
+
+function startTrading() {
+    fetch("http://localhost:5000/start-trading", { method: "POST" })
+        .then(response => response.json())
+        .then(data => alert(data.message))
+        .catch(error => console.error("Error starting trading:", error));
+}
     </script>
 </body>
 </html>
