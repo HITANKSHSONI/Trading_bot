@@ -686,13 +686,9 @@ function enableOrderForm() {
 }
 
 // Function to handle order submission
+// Modify the order submission function
 async function handleOrderSubmit(event) {
     event.preventDefault();
-    
-    console.log('Order submission attempted with:', {
-        symbol: selectedTradingSymbol,
-        token: selectedSymbolToken
-    });
     
     if (!selectedTradingSymbol || !selectedSymbolToken) {
         alert('Please select a stock first');
@@ -700,7 +696,6 @@ async function handleOrderSubmit(event) {
     }
 
     const orderData = {
-        variety: "NORMAL",
         tradingsymbol: selectedTradingSymbol,
         symboltoken: selectedSymbolToken,
         transactiontype: document.getElementById('transactionType').value,
@@ -715,28 +710,29 @@ async function handleOrderSubmit(event) {
     console.log('Submitting order with data:', orderData);
 
     try {
-        const response = await fetch('/place_order', {
+        const response = await fetch('/apply_supertrend', {  // Update the route to match Flask
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Accept': 'application/json'
             },
             body: JSON.stringify(orderData)
         });
 
+        // Add error handling for non-200 responses
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to apply Supertrend');
+        }
+
         const result = await response.json();
         console.log('Server response:', result);
         
-        if (response.ok) {
-            alert('Order placed successfully!');
-            // Reset form
-            event.target.reset();
-        } else {
-            alert('Failed to place order: ' + (result.message || 'Unknown error'));
-        }
+        alert('Supertrend strategy applied successfully!');
+        // Reset form
+        event.target.reset();
     } catch (error) {
-        console.error('Error placing order:', error);
-        alert('Error placing order: ' + error.message);
+        console.error('Error applying Supertrend:', error);
+        alert('Error: ' + error.message);
     }
 }
 
