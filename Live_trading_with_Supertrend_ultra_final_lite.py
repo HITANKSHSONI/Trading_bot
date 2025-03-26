@@ -100,6 +100,31 @@ def topgun(trading_symbol,symbol_token,exchange, quantity):
             print("⚠ An error occurred during login:", str(e))
             return False
 
+    def logout_from_angel_one():
+        global headers
+
+        # API endpoint for logout
+        url = "https://apiconnect.angelone.in/rest/secure/angelbroking/user/v1/logout"
+
+        # Request payload
+        payload = {
+            "clientcode": CLIENT_ID  # Ensure CLIENT_ID is defined
+        }
+
+        try:
+            response = requests.post(url, json=payload, headers=headers)
+            response_data = response.json()
+
+            if response_data.get("status"):
+                print("✅ Logout successful!")
+                return True
+            else:
+                print("❌ Logout failed. Error:", response_data.get("message"))
+                return False
+        except Exception as e:
+            print("⚠ An error occurred during logout:", str(e))
+            return False
+
     def fetch_historical_stock_data(symbol_token, exchange):
         global CANDLE_SIZE
         
@@ -626,9 +651,9 @@ def topgun(trading_symbol,symbol_token,exchange, quantity):
         market_end = datetime.time(15, 30)
         
         return market_start <= current_time <= market_end
-
+    
     def main():
-        global CANDLE_SIZE
+        global CANDLE_SIZE, stop_flag
         
         # Login to Angel One
         if not login_to_angel_one():
@@ -661,7 +686,7 @@ def topgun(trading_symbol,symbol_token,exchange, quantity):
         # Trading loop
         print("Starting live trading session...")
         try:
-            while True:
+            while not stop_flag: #Exit when stop_flag is set to True
                 # Check if market is open - Uncomment for production use
                 #if not is_market_open():
                     #print(f"Market is closed at {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}. Waiting...")
@@ -700,6 +725,11 @@ def topgun(trading_symbol,symbol_token,exchange, quantity):
                 # Wait for 1 minute before next update
                 print(f"Waiting for next update... (Current time: {datetime.datetime.now().strftime('%H:%M:%S')})")
                 time.sleep(60)
+
+                #Check stop flag before looping
+                if stop_flag:
+                    print("Gracefully stopping trading...")
+                    break
                 
         except KeyboardInterrupt:
             print("\nTrading session ended by user.")
@@ -716,5 +746,6 @@ def topgun(trading_symbol,symbol_token,exchange, quantity):
                         plot_data_with_supertrend(live_df)
                 except Exception as e:
                     print(f"⚠ Error plotting final chart: {str(e)}")
+            logout_from_angel_one()  # Ensure safe logout before stopping
             print("Trading session ended.")
     main()

@@ -6,9 +6,20 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)  # Enable CORS for cross-origin requests
 
+# Function to start trading in a separate thread
+def start_trading(trading_symbol, symbol_token, exchange, quantity):
+    global stop_flag
+    stop_flag = False  # Reset stop flag when starting
+
+    trade_thread = threading.Thread(target=topgun, args=(trading_symbol, symbol_token, exchange, quantity))
+    trade_thread.start()
+    return trade_thread
+
 @app.route("/apply_supertrend", methods=["POST"])
 def apply_supertrend():
     """API endpoint to trigger the Supertrend calculation."""
+    global stop_flag
+    
     try:
         # Ensure the request contains JSON
         if not request.is_json:
@@ -30,7 +41,7 @@ def apply_supertrend():
         # Run the trading function in a separate thread
         # thread = threading.Thread(target=topgun, args=(trading_symbol, symbol_token, exchange, quantity))
         # thread.start()
-        topgun(trading_symbol, symbol_token, exchange, quantity)
+        start_trading(trading_symbol, symbol_token, exchange, quantity)
 
         return jsonify({
             "message": "Supertrend strategy applied successfully",

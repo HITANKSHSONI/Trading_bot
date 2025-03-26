@@ -770,7 +770,7 @@
 
                 const result = await response.json();
                 console.log('Trade Stopped:', result);
-                alert('Trading has been stopped successfully!');
+                alert(result.message);
             } catch (error) {
                 console.error('Error stopping trade:', error);
                 alert('Error: ' + error.message);
