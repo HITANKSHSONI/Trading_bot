@@ -9,9 +9,8 @@ import datetime
 import time
 from dotenv import load_dotenv
 import pandas_ta as ta
-
 def topgun(trading_symbol,symbol_token,exchange, quantity):
-# Fix UnicodeEncodeError for Windows
+    # Fix UnicodeEncodeError for Windows
     sys.stdout.reconfigure(encoding='utf-8')
 
     # Load environment variables from .env file
@@ -26,9 +25,6 @@ def topgun(trading_symbol,symbol_token,exchange, quantity):
     # Global variables
     auth_token = None
     headers = None
-    # trading_symbol = "SUZLON-EQ"
-    # symbol_token = "12018"  # SBIN by default
-    # exchange = "NSE"
     duration = "DAY"
     # quantity = 1
     active_position = None
@@ -721,6 +717,4 @@ def topgun(trading_symbol,symbol_token,exchange, quantity):
                 except Exception as e:
                     print(f"⚠ Error plotting final chart: {str(e)}")
             print("Trading session ended.")
-
-if __name__ == "__main__":
     main()
