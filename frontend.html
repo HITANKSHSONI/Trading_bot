@@ -603,11 +603,68 @@
         });
 
         // Login functionality
-        document.getElementById('loginForm').addEventListener('submit', function (event) {
+
+        // Call this function on page load
+        document.addEventListener('DOMContentLoaded', checkAuthentication);
+        document.getElementById('loginForm').addEventListener('submit', async function (event) {
             event.preventDefault();
-            document.getElementById('loginContainer').style.display = 'none';
-            document.getElementById('dashboardContainer').style.display = 'block';
+            // Get the entered username and password
+            const username = document.getElementById('loginId').value.trim();
+            const password = document.getElementById('password').value.trim();
+
+            try {
+                // Send login request to the server
+                const response = await fetch('http://127.0.0.1:5000/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ username, password }),
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    alert(data.message);
+
+                    // Store the token (if using token-based authentication)
+                    localStorage.setItem('authToken', data.token);
+
+                    // Hide the login container and show the dashboard
+                    document.getElementById('loginContainer').style.display = 'none';
+                    document.getElementById('dashboardContainer').style.display = 'block';
+                } else {
+                    const errorData = await response.json();
+                    alert(errorData.message);
+                }
+            } catch (error) {
+                console.error('Error during login:', error);
+                alert('An error occurred. Please try again.');
+            }
         });
+        async function checkAuthentication() {
+            try {
+                const response = await fetch('http://127.0.0.1:5000/dashboard', {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('authToken')}`, // If using token-based auth
+                    },
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log(data.message);
+                    document.getElementById('loginContainer').style.display = 'none';
+                    document.getElementById('dashboardContainer').style.display = 'block';
+                } else {
+                    throw new Error('Unauthorized');
+                }
+            } catch (error) {
+                console.error('Authentication check failed:', error);
+                alert('You are not authorized. Please log in.');
+                document.getElementById('loginContainer').style.display = 'block';
+                document.getElementById('dashboardContainer').style.display = 'none';
+            }
+        }
 
         // Function to update autocomplete suggestions
         function updateSuggestions() {

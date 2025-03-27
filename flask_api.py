@@ -1,7 +1,10 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, session
 import threading
 from Live_trading_with_Supertrend_ultra_final_lite import topgun
 from flask_cors import CORS
+import os
+from dotenv import load_dotenv
+load_dotenv()
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for cross-origin requests
@@ -14,6 +17,31 @@ def start_trading(trading_symbol, symbol_token, exchange, quantity):
     trade_thread = threading.Thread(target=topgun, args=(trading_symbol, symbol_token, exchange, quantity))
     trade_thread.start()
     return trade_thread
+
+app.secret_key = os.getenv("SECRET_KEY", "your_secret_key")  # Replace with a secure key
+
+# Dummy credentials (replace with a database in production)
+USERNAME = os.getenv("USERNAME", "topgun")
+PASSWORD = os.getenv("PASSWORD", "maverick")
+
+@app.route('/login', methods=['POST'])
+def login():
+    data = request.json
+    username = data.get('username')
+    password = data.get('password')
+
+    if username == USERNAME and password == PASSWORD:
+        session['user'] = username  # Store user in session
+        return jsonify({"message": "Login successful", "token": "dummy_token"}), 200
+    else:
+        return jsonify({"message": "Invalid credentials"}), 401
+
+@app.route('/dashboard', methods=['GET'])
+def dashboard():
+    if 'user' in session:
+        return jsonify({"message": f"Welcome {session['user']} to the dashboard!"}), 200
+    else:
+        return jsonify({"message": "Unauthorized"}), 401
 
 @app.route("/apply_supertrend", methods=["POST"])
 def apply_supertrend():

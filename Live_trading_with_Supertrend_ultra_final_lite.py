@@ -667,7 +667,7 @@ def topgun(trading_symbol,symbol_token,exchange, quantity):
         
         # You can change candle size here
         # CANDLE_SIZE = "FIVE_MINUTE"  # Uncomment to change from default
-        print(f"Using {CANDLE_SIZE} candles for trading")
+        
         
         # Fetch historical data for initial Supertrend calculation
         historical_df = fetch_historical_stock_data(symbol_token, exchange)
@@ -727,6 +727,7 @@ def topgun(trading_symbol,symbol_token,exchange, quantity):
                 time.sleep(60)
 
                 #Check stop flag before looping
+                print(stop_flag)
                 if stop_flag:
                     print("Gracefully stopping trading...")
                     break
