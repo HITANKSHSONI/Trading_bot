@@ -8,12 +8,14 @@ load_dotenv()
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for cross-origin requests
+global stop_flag
+# stop_flag = False 
 
 # Function to start trading in a separate thread
-def start_trading(trading_symbol, symbol_token, exchange, quantity):
+def start_trading(trading_symbol, symbol_token, exchange, quantity,):
     global stop_flag
-    stop_flag = False  # Reset stop flag when starting
-
+ # Reset stop flag when starting
+    stop_flag = False
     trade_thread = threading.Thread(target=topgun, args=(trading_symbol, symbol_token, exchange, quantity))
     trade_thread.start()
     return trade_thread
@@ -21,7 +23,7 @@ def start_trading(trading_symbol, symbol_token, exchange, quantity):
 app.secret_key = os.getenv("SECRET_KEY", "your_secret_key")  # Replace with a secure key
 
 # Dummy credentials (replace with a database in production)
-USERNAME = os.getenv("USERNAME", "topgun")
+USERNAME = os.getenv("USERNAMEE", "topgun")
 PASSWORD = os.getenv("PASSWORD", "maverick")
 
 @app.route('/login', methods=['POST'])
@@ -29,6 +31,10 @@ def login():
     data = request.json
     username = data.get('username')
     password = data.get('password')
+    print(username)
+    print(USERNAME)
+    print(password)
+    print(PASSWORD)
 
     if username == USERNAME and password == PASSWORD:
         session['user'] = username  # Store user in session
@@ -86,8 +92,8 @@ def stop_supertrend():
 
     #Still pending to put logic inside this api, which can break the running topgun() function.??
     """Stop the currently running trade."""
-    global stop_signal
-    stop_signal = True  # Set flag to stop the running trade
+    global stop_flag
+    stop_flag = True  # Set flag to stop the running trade
     return jsonify({"message": "Supertrend trading stopped"}), 200
 
 if __name__ == "__main__":
