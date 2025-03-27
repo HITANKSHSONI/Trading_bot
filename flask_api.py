@@ -1,46 +1,94 @@
-from flask import Flask, request, jsonify
-import subprocess
+from flask import Flask, request, jsonify, session
 import threading
+from Live_trading_with_Supertrend_ultra_final_lite import topgun
+from flask_cors import CORS
 import os
+from dotenv import load_dotenv
+load_dotenv()
 
 app = Flask(__name__)
+CORS(app)  # Enable CORS for cross-origin requests
 
-def run_trading_script(trading_symbol, symbol_token, exchange, quantity):
-    """Runs the trading script with updated parameters."""
-    env_vars = {
-        "TRADING_SYMBOL": trading_symbol,
-        "SYMBOL_TOKEN": symbol_token,
-        "EXCHANGE": exchange,
-        "QUANTITY": str(quantity)
-    }
-    
-    process = subprocess.Popen(["python", "Live_trading_with_Supertrend_final.py"],
-                               env={**os.environ, **env_vars},
-                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    
-    stdout, stderr = process.communicate()
-    print(stdout.decode())
-    if stderr:
-        print(stderr.decode())
+# Function to start trading in a separate thread
+def start_trading(trading_symbol, symbol_token, exchange, quantity):
+    global stop_flag
+    stop_flag = False  # Reset stop flag when starting
+
+    trade_thread = threading.Thread(target=topgun, args=(trading_symbol, symbol_token, exchange, quantity))
+    trade_thread.start()
+    return trade_thread
+
+app.secret_key = os.getenv("SECRET_KEY", "your_secret_key")  # Replace with a secure key
+
+# Dummy credentials (replace with a database in production)
+USERNAME = os.getenv("USERNAME", "topgun")
+PASSWORD = os.getenv("PASSWORD", "maverick")
+
+@app.route('/login', methods=['POST'])
+def login():
+    data = request.json
+    username = data.get('username')
+    password = data.get('password')
+
+    if username == USERNAME and password == PASSWORD:
+        session['user'] = username  # Store user in session
+        return jsonify({"message": "Login successful", "token": "dummy_token"}), 200
+    else:
+        return jsonify({"message": "Invalid credentials"}), 401
+
+@app.route('/dashboard', methods=['GET'])
+def dashboard():
+    if 'user' in session:
+        return jsonify({"message": f"Welcome {session['user']} to the dashboard!"}), 200
+    else:
+        return jsonify({"message": "Unauthorized"}), 401
 
 @app.route("/apply_supertrend", methods=["POST"])
 def apply_supertrend():
     """API endpoint to trigger the Supertrend calculation."""
-    data = request.json
+    global stop_flag
     
-    trading_symbol = data.get("trading_symbol")
-    symbol_token = data.get("symbol_token")
-    exchange = data.get("exchange")
-    quantity = data.get("quantity")
-    
-    if not all([trading_symbol, symbol_token, exchange, quantity]):
-        return jsonify({"error": "Missing required parameters"}), 400
-    
-    # Run the trading script in a separate thread to avoid blocking
-    thread = threading.Thread(target=run_trading_script, args=(trading_symbol, symbol_token, exchange, quantity))
-    thread.start()
-    
-    return jsonify({"message": "Supertrend strategy applied successfully"})
+    try:
+        # Ensure the request contains JSON
+        if not request.is_json:
+            return jsonify({"error": "Request must be JSON"}), 400
+
+        # Get JSON data
+        data = request.get_json()
+
+        # Extract data from the frontend payload
+        trading_symbol = data.get("tradingsymbol")
+        symbol_token = data.get("symboltoken")
+        exchange = data.get("exchange", "NSE")
+        quantity = data.get("quantity")
+
+        # Validate required fields
+        if not all([trading_symbol, symbol_token, quantity]):
+            return jsonify({"error": "Missing required parameters"}), 400
+
+        # Run the trading function in a separate thread
+        # thread = threading.Thread(target=topgun, args=(trading_symbol, symbol_token, exchange, quantity))
+        # thread.start()
+        start_trading(trading_symbol, symbol_token, exchange, quantity)
+
+        return jsonify({
+            "message": "Supertrend strategy applied successfully",
+            "trading_symbol": trading_symbol,
+            "symbol_token": symbol_token
+        }), 200
+
+    except Exception as e:
+        print(f"Error in apply_supertrend: {str(e)}")
+        return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
+
+@app.route("/stop_supertrend", methods=["POST"])
+def stop_supertrend():
+
+    #Still pending to put logic inside this api, which can break the running topgun() function.??
+    """Stop the currently running trade."""
+    global stop_signal
+    stop_signal = True  # Set flag to stop the running trade
+    return jsonify({"message": "Supertrend trading stopped"}), 200
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    app.run(debug=True, port=5000)  # Changed port to avoid conflict
