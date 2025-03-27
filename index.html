@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trading Bot Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Login Container -->
+    <div class="login-container" id="loginContainer">
+        <h2>Login</h2>
+        <form id="loginForm">
+            <div class="input-group">
+                <label for="loginId">Login ID:</label>
+                <input type="text" id="loginId" name="loginId" required>
+            </div>
+            <div class="input-group">
+                <label for="password">Password:</label>
+                <input type="password" id="password" name="password" required>
+            </div>
+            <button type="submit" class="login-button">Log In</button>
+        </form>
+    </div>
+
+    <!-- Dashboard Container -->
+    <div class="dashboard-container" id="dashboardContainer" style="display:none;">
+        <header>
+            <h1>Trading Bot Dashboard</h1>
+        </header>
+
+        <div class="search-bar">
+            <input type="text" id="stockSearch" placeholder="Search for Stocks..." list="stockSuggestions">
+            <datalist id="stockSuggestions"></datalist> <!-- Autocomplete dropdown -->
+            <select id="instrumentType">
+                <option value="">All</option>
+                <option value="EQ">Equity</option>
+                <option value="FUT">Futures</option>
+                <option value="OPT">Options</option>
+            </select>
+            <button id="searchButton">Enter</button>
+        </div>
+        <div id="stockResults">
+            <h2>Stock Search Results</h2>
+            <div id="resultLabel"></div> <!-- This is where the stock name and symbol will be displayed -->
+        </div>
+        <div class="option-chain" id="optionChain">
+            <h2>Option Chain</h2>
+            <div id="optionChainList">
+                <p>Select a stock to view the option chain.</p>
+            </div>
+        </div>
+        <div class="supertrend-indicator">
+            <h2>Supertrend Indicator</h2>
+            <div class="indicator-settings">
+                <label for="stLength">Length:</label>
+                <input type="number" id="stLength" value="10">
+                <label for="stFactor">Factor:</label>
+                <input type="number" id="stFactor" value="3">
+                <button id="applySupertrend">Apply Supertrend</button>
+            </div>
+            <div id="supertrendDisplay">
+                <p>Supertrend indicator will be shown here.</p>
+            </div>
+        </div>
+
+        <!-- Order Form Section -->
+        <div class="order-form">
+            <h2>Place Order</h2>
+            <form id="orderForm">
+                <div class="order-inputs">
+                    <div class="input-group">
+                        <label for="transactionType">Transaction Type:</label>
+                        <select id="transactionType" required>
+                            <option value="BUY">Buy</option>
+                            <option value="SELL">Sell</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
+                        <label for="orderType">Order Type:</label>
+                        <select id="orderType" required>
+                            <option value="MARKET">Market</option>
+                            <option value="LIMIT">Limit</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
+                        <label for="productType">Product Type:</label>
+                        <select id="productType" required>
+                            <option value="INTRADAY">Intraday</option>
+                            <option value="DELIVERY">Delivery</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
+                        <label for="duration">Duration:</label>
+                        <select id="duration" required>
+                            <option value="DAY">Day</option>
+                            <option value="IOC">IOC</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
+                        <label for="quantity">Quantity:</label>
+                        <input type="number" id="quantity" required min="1">
+                    </div>
+                    <div class="input-group">
+                        <label for="stopLoss">Stop Loss:</label>
+                        <input type="number" id="stopLoss" value="0">
+                    </div>
+                </div>
+                <button type="submit" class="order-button">Place Order</button>
+            </form>
+        </div>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>
