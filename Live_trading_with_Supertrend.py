@@ -1,0 +1,577 @@
+import requests
+import os
+import pyotp
+import pandas as pd
+import numpy as np
+import plotly.graph_objects as go
+import sys
+import datetime
+import time
+from dotenv import load_dotenv
+import pandas_ta as ta
+
+# Fix UnicodeEncodeError for Windows
+sys.stdout.reconfigure(encoding='utf-8')
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Angel One API credentials
+API_KEY = os.getenv("ANGELONE_API_KEY")
+CLIENT_ID = os.getenv("ANGELONE_CLIENT_ID")
+PASSWORD = os.getenv("ANGELONE_MPIN")
+TOTP_SECRET = os.getenv("ANGELONE_TOTP_SECRET")
+
+# Global variables
+auth_token = None
+headers = None
+symbol_token = "3045"  # Reliance by default
+exchange = "NSE"
+quantity = 1
+active_position = None
+entry_price = None
+stop_loss = None
+take_profit = None
+
+def login_to_angel_one():
+    global auth_token, headers
+    
+    # API endpoint for login
+    url = "https://apiconnect.angelone.in/rest/auth/angelbroking/user/v1/loginByPassword"
+    
+    # Headers
+    headers = {
+        "Content-type": "application/json",
+        "X-ClientLocalIP": "127.0.0.1",
+        "X-ClientPublicIP": "127.0.0.1",
+        "X-MACAddress": "00:00:00:00:00:00",
+        "Accept": "application/json",
+        "X-PrivateKey": API_KEY,
+        "X-UserType": "USER",
+        "X-SourceID": "WEB"
+    }
+    
+    # Request body for login
+    payload = {
+        "clientcode": CLIENT_ID,
+        "password": PASSWORD,
+        "totp": pyotp.TOTP(TOTP_SECRET).now()
+    }
+    
+    try:
+        response = requests.post(url, json=payload, headers=headers)
+        response_data = response.json()
+        
+        if response_data.get("status"):
+            print("✅ Login successful!")
+            auth_token = response_data["data"]["jwtToken"]
+            headers["Authorization"] = f"Bearer {auth_token}"  # Add auth token to headers
+            return True
+        else:
+            print("❌ Login failed. Error:", response_data.get("message"))
+            return False
+    except Exception as e:
+        print("⚠ An error occurred during login:", str(e))
+        return False
+
+def fetch_historical_stock_data(symbol_token="3045", exchange="NSE"):
+    today = datetime.datetime.now()
+    
+    # Check if today is Monday (0 = Monday in Python's datetime)
+    if today.weekday() == 0:
+        # If Monday, get Friday's data (3 days ago)
+        past_day = today - datetime.timedelta(days=3)
+    else:
+        # Otherwise get previous day's data
+        past_day = today - datetime.timedelta(days=1)
+    
+    from_date = past_day.strftime("%Y-%m-%d 09:15")
+    to_date = past_day.strftime("%Y-%m-%d 15:30")
+    
+    print(f"📅 Fetching historical data from {from_date} to {to_date}")
+    
+    payload = {
+        "exchange": exchange,
+        "symboltoken": symbol_token,
+        "interval": "FIFTEEN_MINUTE",
+        "fromdate": from_date,
+        "todate": to_date
+    }
+    
+    url = "https://apiconnect.angelone.in/rest/secure/angelbroking/historical/v1/getCandleData"
+    response = requests.post(url, json=payload, headers=headers)
+    
+    try:
+        response_data = response.json()
+    except Exception as e:
+        print("❌ Failed to parse API response:", str(e))
+        return None
+    
+    if "data" in response_data and response_data["data"]:
+        df = pd.DataFrame(response_data["data"], columns=["date", "open", "high", "low", "close", "volume"])
+        df["date"] = pd.to_datetime(df["date"])
+        
+        # Filter data to include only market working hours (09:15 to 15:30)
+        df["time"] = df["date"].dt.time
+        df = df[(df["time"] >= datetime.time(9, 15)) & (df["time"] <= datetime.time(15, 30))]
+        df = df.drop(columns=["time"])
+        
+        df.set_index("date", inplace=True)
+        print(f"✅ Historical Data Fetched Successfully! ({len(df)} candles)")
+        return df
+    else:
+        print("❌ API returned no historical data!")
+        return None
+
+def fetch_live_stock_data(symbol_token="3045", exchange="NSE"):
+    url = "https://apiconnect.angelone.in/rest/secure/angelbroking/market/v1/quote/"
+    payload = {"mode": "FULL", "exchangeTokens": {exchange: [symbol_token]}}
+    
+    try:
+        response = requests.post(url, json=payload, headers=headers)
+        response_data = response.json()
+        
+        if "data" in response_data:
+            market_data = response_data["data"].get("fetched", [])
+            if market_data:
+                # Convert the data to a dataframe
+                current_time = pd.Timestamp.now(tz='Asia/Kolkata')
+                live_data = {
+                    "date": current_time,
+                    "open": float(market_data[0].get("open", 0)),
+                    "high": float(market_data[0].get("high", 0)),
+                    "low": float(market_data[0].get("low", 0)),
+                    "close": float(market_data[0].get("ltp", 0)),  # Using LTP as close
+                    "volume": int(market_data[0].get("totalTradedVolume", 0))
+                }
+                
+                # Create a dataframe with a single row
+                df = pd.DataFrame([live_data])
+                df.set_index("date", inplace=True)
+                
+                print("✅ Live data fetched successfully:")
+                print(df)
+                return df
+    except Exception as e:
+        print("❌ Failed to fetch live data:", str(e))
+    
+    return None
+
+def update_live_data(live_df, new_data):
+    if new_data is not None and not new_data.empty:
+        if live_df is None or live_df.empty:
+            combined = new_data
+        else:
+            # Round timestamps to the nearest 15 minutes for OHLC consolidation
+            new_time = new_data.index[0]
+            rounded_time = pd.Timestamp(
+                year=new_time.year, 
+                month=new_time.month,
+                day=new_time.day,
+                hour=new_time.hour,
+                minute=(new_time.minute // 15) * 15,
+                tz=new_time.tz
+            )
+            
+            # Check if we need to update the last candle or create a new one
+            if not live_df.empty:
+                # Ensure the index is datetime type
+                if not isinstance(live_df.index, pd.DatetimeIndex):
+                    live_df.index = pd.to_datetime(live_df.index)
+                
+                # Now check if we update the last candle or create a new one
+                last_candle_time = live_df.index[-1]
+                if isinstance(last_candle_time, pd.Timestamp):
+                    last_candle_floor = last_candle_time.floor('15min')
+                    rounded_time_floor = rounded_time.floor('15min')
+                    
+                    if last_candle_floor == rounded_time_floor:
+                        # Update the last candle
+                        last_idx = live_df.index[-1]
+                        live_df.at[last_idx, 'high'] = max(live_df.at[last_idx, 'high'], new_data['high'].values[0])
+                        live_df.at[last_idx, 'low'] = min(live_df.at[last_idx, 'low'], new_data['low'].values[0])
+                        live_df.at[last_idx, 'close'] = new_data['close'].values[0]
+                        live_df.at[last_idx, 'volume'] += new_data['volume'].values[0]
+                        
+                        # Only keep the OHLCV columns when updating
+                        columns_to_keep = ['open', 'high', 'low', 'close', 'volume']
+                        for col in live_df.columns:
+                            if col not in columns_to_keep:
+                                live_df = live_df.drop(columns=[col])
+                                
+                        combined = live_df
+                    else:
+                        # Add a new candle
+                        new_data.index = [rounded_time]
+                        
+                        # Only keep the OHLCV columns when adding new data
+                        new_data = new_data[['open', 'high', 'low', 'close', 'volume']]
+                        live_df_ohlcv = live_df[['open', 'high', 'low', 'close', 'volume']]
+                        
+                        combined = pd.concat([live_df_ohlcv, new_data])
+                else:
+                    # Fallback if the index is still not a timestamp
+                    new_data.index = [rounded_time]
+                    combined = pd.concat([live_df, new_data])
+            else:
+                # Add a new candle
+                new_data.index = [rounded_time]
+                combined = new_data
+        
+        # Keep only the latest 100 records
+        return combined.tail(100)
+    
+    return live_df if live_df is not None else pd.DataFrame()
+
+def calculate_supertrend(df):
+    if df is None or df.empty:
+        print("❌ No data available for Supertrend calculation")
+        return None
+    
+    # Make a copy to avoid modifying the original
+    df_copy = df.copy()
+    
+    # Ensure all required columns exist and are numeric
+    required_cols = ["open", "high", "low", "close", "volume"]
+    for col in required_cols:
+        if col not in df_copy.columns:
+            print(f"❌ Missing column: {col} for Supertrend calculation")
+            return None
+        df_copy[col] = pd.to_numeric(df_copy[col], errors='coerce')
+    
+    # Drop rows with NaN values
+    df_copy = df_copy.dropna(subset=required_cols)
+    
+    if len(df_copy) < 10:  # Minimum length for Supertrend calculation
+        print("❌ Not enough data points for Supertrend calculation")
+        return df_copy
+    
+    try:
+        # Calculate Supertrend using pandas_ta
+        supertrend = ta.supertrend(df_copy['high'], df_copy['low'], df_copy['close'], length=10, multiplier=2.0)
+        if supertrend is not None:
+            # Make sure we don't have duplicate columns by dropping any existing supertrend columns
+            for col in df_copy.columns:
+                if col.startswith('SUPERT_'):
+                    df_copy = df_copy.drop(columns=[col])
+            
+            # Join the supertrend dataframe with our price dataframe
+            df_copy = pd.concat([df_copy, supertrend], axis=1)
+            
+            # Create the signal column
+            df_copy['signal'] = np.where(df_copy['close'] > df_copy["SUPERT_10_2.0"], 'buy', 'sell')
+            
+            # Detect signal changes (from buy to sell or sell to buy)
+            df_copy['signal_change'] = (df_copy['signal'] != df_copy['signal'].shift(1)) & (df_copy['signal'].shift(1).notna())
+            
+        else:
+            print("❌ Supertrend calculation returned None")
+    except Exception as e:
+        print(f"❌ Error calculating Supertrend: {e}")
+    
+    return df_copy
+
+def plot_data_with_supertrend(df):
+    if df is None or df.empty or 'SUPERT_10_2.0' not in df.columns:
+        print("❌ No data available for plotting")
+        return
+    
+    fig = go.Figure()
+    
+    # Add candlestick trace
+    fig.add_trace(go.Candlestick(
+        x=df.index,
+        open=df["open"],
+        high=df["high"],
+        low=df["low"],
+        close=df["close"],
+        name="Price"
+    ))
+    
+    # Add Supertrend line trace
+    fig.add_trace(go.Scatter(
+        x=df.index,
+        y=df["SUPERT_10_2.0"],
+        mode="lines",
+        name="Supertrend",
+        line=dict(dash="dash", color="purple")
+    ))
+    
+    # Add buy signals
+    buy_signals = df[df['signal'] == 'buy']
+    fig.add_trace(go.Scatter(
+        x=buy_signals.index,
+        y=buy_signals["low"] * 0.998,  # Place slightly below the candle
+        mode='markers',
+        marker=dict(
+            color='green',
+            size=10,
+            symbol='triangle-up'
+        ),
+        name='Buy Signal'
+    ))
+    
+    # Add sell signals
+    sell_signals = df[df['signal'] == 'sell']
+    fig.add_trace(go.Scatter(
+        x=sell_signals.index,
+        y=sell_signals["high"] * 1.002,  # Place slightly above the candle
+        mode='markers',
+        marker=dict(
+            color='red',
+            size=10,
+            symbol='triangle-down'
+        ),
+        name='Sell Signal'
+    ))
+    
+    # Calculate y-axis range with some padding
+    y_min = df["low"].min() * 0.99
+    y_max = df["high"].max() * 1.01
+    
+    fig.update_layout(
+        title="Stock Data with Supertrend Indicator",
+        xaxis_title="Date/Time",
+        yaxis_title="Price",
+        yaxis=dict(range=[y_min, y_max])
+    )
+    
+    # Use rangebreaks to remove non-trading hours and weekends
+    fig.update_xaxes(
+        rangebreaks=[
+            dict(bounds=["sat", "mon"]),
+            dict(bounds=[15.5, 9.25], pattern="hour")
+        ]
+    )
+    
+    fig.show()
+
+def execute_buy_order(symbol_token, quantity, stop_loss_price=None):
+    url = "https://apiconnect.angelone.in/rest/secure/angelbroking/order/v1/placeOrder"
+    
+    # Setting up order parameters
+    payload = {
+        "exchange": exchange,
+        "tradingsymbol": symbol_token,
+        "quantity": quantity,
+        "disclosedquantity": 0,
+        "transactiontype": "BUY",
+        "ordertype": "MARKET",
+        "producttype": "INTRADAY",
+        "variety": "NORMAL"
+    }
+    
+    # If stop loss is provided, use STOPLOSS variety
+    if stop_loss_price:
+        payload["variety"] = "STOPLOSS"
+        payload["triggerprice"] = stop_loss_price
+    
+    try:
+        response = requests.post(url, json=payload, headers=headers)
+        response_data = response.json()
+        
+        if response_data.get("status"):
+            print(f"✅ Buy order placed successfully! Order ID: {response_data.get('data', {}).get('orderid')}")
+            return True
+        else:
+            print(f"❌ Failed to place buy order: {response_data.get('message')}")
+            return False
+    except Exception as e:
+        print(f"⚠ Error placing buy order: {str(e)}")
+        return False
+
+def execute_sell_order(symbol_token, quantity, stop_loss_price=None):
+    url = "https://apiconnect.angelone.in/rest/secure/angelbroking/order/v1/placeOrder"
+    
+    # Setting up order parameters
+    payload = {
+        "exchange": exchange,
+        "tradingsymbol": symbol_token,
+        "quantity": quantity,
+        "disclosedquantity": 0,
+        "transactiontype": "SELL",
+        "ordertype": "MARKET",
+        "producttype": "INTRADAY",
+        "variety": "NORMAL"
+    }
+    
+    # If stop loss is provided, use STOPLOSS variety
+    if stop_loss_price:
+        payload["variety"] = "STOPLOSS"
+        payload["triggerprice"] = stop_loss_price
+    
+    try:
+        response = requests.post(url, json=payload, headers=headers)
+        response_data = response.json()
+        
+        if response_data.get("status"):
+            print(f"✅ Sell order placed successfully! Order ID: {response_data.get('data', {}).get('orderid')}")
+            return True
+        else:
+            print(f"❌ Failed to place sell order: {response_data.get('message')}")
+            return False
+    except Exception as e:
+        print(f"⚠ Error placing sell order: {str(e)}")
+        return False
+
+# def get_symbol_name(symbol_token):
+#     # Map of symbol tokens to their names
+#     # Add more symbols as needed
+#     symbol_map = {
+#         "3045": "3045",
+#         "99926000": "NIFTY",
+#         # Add more symbols here
+#     }
+#     return symbol_map.get(symbol_token, "UNKNOWN")
+
+def apply_trading_strategy(df, symbol_token, quantity=1):
+    global active_position, entry_price, stop_loss, take_profit
+    
+    if df is None or df.empty or 'signal' not in df.columns:
+        print("❌ No data available for strategy application")
+        return
+    
+    # Get the latest candle
+    latest_candle = df.iloc[-1]
+    current_signal = latest_candle['signal']
+    signal_changed = latest_candle.get('signal_change', False)
+    
+    # If signal changed in the latest candle, take action
+    if signal_changed:
+        # Close any existing position first
+        if active_position == "long":
+            print(f"🔄 Closing long position at {latest_candle['close']}")
+            execute_sell_order(symbol_token, quantity)
+            active_position = None
+        elif active_position == "short":
+            print(f"🔄 Closing short position at {latest_candle['close']}")
+            execute_buy_order(symbol_token, quantity)
+            active_position = None
+        
+        # Open new position based on signal
+        if current_signal == 'buy' and active_position is None:
+            entry_price = latest_candle['close']
+            # Calculate stop loss (lowest low of last 3 candles or 2% below entry)
+            if len(df) >= 3:
+                stop_loss = df['low'].iloc[-3:].min()
+            else:
+                stop_loss = entry_price * 0.98
+            
+            # Calculate take profit (1:2 risk-reward)
+            risk = entry_price - stop_loss
+            take_profit = entry_price + (2 * risk)
+            
+            print(f"📈 Opening buy position at {entry_price}, SL: {stop_loss}, TP: {take_profit}")
+            execute_buy_order(symbol_token, quantity)
+            active_position = "long"
+        
+        elif current_signal == 'sell' and active_position is None:
+            entry_price = latest_candle['close']
+            # Calculate stop loss (highest high of last 3 candles or 2% above entry)
+            if len(df) >= 3:
+                stop_loss = df['high'].iloc[-3:].max()
+            else:
+                stop_loss = entry_price * 1.02
+            
+            # Calculate take profit (1:2 risk-reward)
+            risk = stop_loss - entry_price
+            take_profit = entry_price - (2 * risk)
+            
+            print(f"📉 Opening sell position at {entry_price}, SL: {stop_loss}, TP: {take_profit}")
+            execute_sell_order(symbol_token, quantity)
+            active_position = "short"
+    
+    # Check for stop loss or take profit hits on existing positions
+    elif active_position is not None:
+        if active_position == "long":
+            # Check for stop loss
+            if latest_candle['low'] <= stop_loss:
+                print(f"❌ Stop loss hit on long position at {stop_loss}")
+                execute_sell_order(symbol_token, quantity)
+                active_position = None
+            # Check for take profit
+            elif latest_candle['high'] >= take_profit:
+                print(f"💰 Take profit hit on long position at {take_profit}")
+                execute_sell_order(symbol_token, quantity)
+                active_position = None
+        
+        elif active_position == "short":
+            # Check for stop loss
+            if latest_candle['high'] >= stop_loss:
+                print(f"❌ Stop loss hit on short position at {stop_loss}")
+                execute_buy_order(symbol_token, quantity)
+                active_position = None
+            # Check for take profit
+            elif latest_candle['low'] <= take_profit:
+                print(f"💰 Take profit hit on short position at {take_profit}")
+                execute_buy_order(symbol_token, quantity)
+                active_position = None
+
+def main():
+    # Login to Angel One
+    if not login_to_angel_one():
+        print("Exiting due to login failure")
+        return
+    
+    # Set trading parameters
+    symbol_token = "3045"  # Reliance
+    exchange = "NSE"
+    quantity = 1
+    
+    # Fetch historical data for initial Supertrend calculation
+    historical_df = fetch_historical_stock_data(symbol_token, exchange)
+    
+    # Initialize live data with historical data
+    live_df = historical_df.copy() if historical_df is not None else pd.DataFrame()
+    
+    # Calculate initial Supertrend
+    if not live_df.empty:
+        live_df = calculate_supertrend(live_df)
+        print("Initial Supertrend calculated")
+        
+        # Plot initial chart
+        plot_data_with_supertrend(live_df)
+    
+    # Trading loop
+    print("Starting live trading session...")
+    try:
+        while True:
+            # Check if market is open (9:15 AM to 3:30 PM, Monday to Friday)
+            # Code for market hours check...
+            
+            # Fetch latest live data
+            new_data = fetch_live_stock_data(symbol_token, exchange)
+            
+            # Update our dataset - only keep OHLCV data
+            live_df = update_live_data(live_df, new_data)
+            
+            # Recalculate Supertrend with updated data
+            if not live_df.empty:
+                live_df = calculate_supertrend(live_df)
+                
+                # Apply trading strategy based on Supertrend signals
+                apply_trading_strategy(live_df, symbol_token, quantity)
+                
+                # Plot updated chart every 5 iterations
+                if datetime.datetime.now().minute % 5 == 0:
+                    plot_data_with_supertrend(live_df)
+            
+            # Wait for 1 minute before next update
+            print(f"Waiting for next update... (Current time: {datetime.datetime.now().strftime('%H:%M:%S')})")
+            time.sleep(60)
+            
+    except KeyboardInterrupt:
+        print("\nTrading session ended by user.")
+    except Exception as e:
+        print(f"⚠ Error in trading loop: {str(e)}")
+        import traceback
+        traceback.print_exc()  # Print the full traceback for debugging
+    finally:
+        # Plot final chart
+        if not live_df.empty:
+            live_df = calculate_supertrend(live_df)
+            plot_data_with_supertrend(live_df)
+        print("Trading session ended.")
+
+if __name__ == "__main__":
+    main()
