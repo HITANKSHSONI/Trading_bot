@@ -21,12 +21,12 @@ API_KEY = os.getenv("ANGELONE_API_KEY")
 CLIENT_ID = os.getenv("ANGELONE_CLIENT_ID")
 PASSWORD = os.getenv("ANGELONE_MPIN")
 TOTP_SECRET = os.getenv("ANGELONE_TOTP_SECRET")
-
+print(API_KEY)
 # Global variables
 auth_token = None
 headers = None
-trading_symbol = "SBIN-EQ"
-symbol_token = "3045"  # SBIN by default
+trading_symbol = "HFCL-EQ"
+symbol_token = "21951"  # SBIN by default
 exchange = "NSE"
 quantity = 1
 active_position = None
@@ -52,7 +52,7 @@ headers = {
     "X-ClientPublicIP": "127.0.0.1",
     "X-MACAddress": "00:00:00:00:00:00",
     "Accept": "application/json",
-    "X-PrivateKey": '7Ee2qnqp',
+    "X-PrivateKey": API_KEY,
     "X-UserType": "USER",
     "X-SourceID": "WEB"
 }
@@ -96,14 +96,14 @@ def execute_buy_order(symbol_token,trading_symbol, quantity, stop_loss_price=Non
         "variety": "NORMAL"
     }
     headers = {
-        'X-PrivateKey': '7Ee2qnqp',
+        'X-PrivateKey': API_KEY,
         'Accept': 'application/json',
         'X-SourceID': 'WEB',
         'X-ClientLocalIP': 'CLIENT_LOCAL_IP',
         'X-ClientPublicIP': 'CLIENT_PUBLIC_IP',
         'X-MACAddress': 'MAC_ADDRESS',
         'X-UserType': 'USER',
-        'Authorization': 'Bearer eyJhbGciOiJIUzUxMiJ9.eyJ1c2VybmFtZSI6Ikg3NjQ5MyIsInJvbGVzIjowLCJ1c2VydHlwZSI6IlVTRVIiLCJ0b2tlbiI6ImV5SmhiR2NpT2lKU1V6STFOaUlzSW5SNWNDSTZJa3BYVkNKOS5leUoxYzJWeVgzUjVjR1VpT2lKamJHbGxiblFpTENKMGIydGxibDkwZVhCbElqb2lkSEpoWkdWZllXTmpaWE56WDNSdmEyVnVJaXdpWjIxZmFXUWlPallzSW5OdmRYSmpaU0k2SWpNaUxDSmtaWFpwWTJWZmFXUWlPaUpsWVdZMVpqZGpZUzB4T0daa0xUTTJORGt0WVRkbE15MDRPRFpoWVRoa1pUTXpOVGtpTENKcmFXUWlPaUowY21Ga1pWOXJaWGxmZGpJaUxDSnZiVzVsYldGdVlXZGxjbWxrSWpvMkxDSndjbTlrZFdOMGN5STZleUprWlcxaGRDSTZleUp6ZEdGMGRYTWlPaUpoWTNScGRtVWlmU3dpYldZaU9uc2ljM1JoZEhWeklqb2lZV04wYVhabEluMTlMQ0pwYzNNaU9pSjBjbUZrWlY5c2IyZHBibDl6WlhKMmFXTmxJaXdpYzNWaUlqb2lTRGMyTkRreklpd2laWGh3SWpveE56UXlPVEl3TlRZeUxDSnVZbVlpT2pFM05ESTRNek01T0RJc0ltbGhkQ0k2TVRjME1qZ3pNems0TWl3aWFuUnBJam9pTWpNM05UY3pNbUV0TnpKaVpTMDBNalF3TFdFM09XSXRaakpoT0dOak5qSmlOelkzSWl3aVZHOXJaVzRpT2lJaWZRLmNZVWxjbFRrTm9NRm43UGFnTlNMckpadTN0SDN4cHBRSjBCcjh3c0JZNjRGUFBIVmNHdUVyRGhoSGxGN3lPYWkwdGhKRVpiMXptWnp1c1F6OXp3ZkoyRVRCRTR6M3ZoX24tV2lsdFN1MGxoYmRlME9kNzBjWk95YkJsYk9pMVFjNjh3aVM4Sl85YUZTOWZsRVJpNmhvSjAzT21WMktCNllPRGhiZzJGQl9hdyIsIkFQSS1LRVkiOiI3RWUycW5xcCIsImlhdCI6MTc0MjgzNDE2MiwiZXhwIjoxNzQyOTIwNTYyfQ.SVKypuoizgHRlVRkU2HlaiN8pzXWRybuB3bEDFc-hnJ8o36QZt5A16o63HPymYN3Y4FoyNbsDuoffkkr9Z62pg',
+        'Authorization': 'Bearer eyJhbGciOiJIUzUxMiJ9.eyJ1c2VybmFtZSI6Ikg3NjQ5MyIsInJvbGVzIjowLCJ1c2VydHlwZSI6IlVTRVIiLCJ0b2tlbiI6ImV5SmhiR2NpT2lKU1V6STFOaUlzSW5SNWNDSTZJa3BYVkNKOS5leUoxYzJWeVgzUjVjR1VpT2lKamJHbGxiblFpTENKMGIydGxibDkwZVhCbElqb2lkSEpoWkdWZllXTmpaWE56WDNSdmEyVnVJaXdpWjIxZmFXUWlPallzSW5OdmRYSmpaU0k2SWpNaUxDSmtaWFpwWTJWZmFXUWlPaUppTm1RMVpXWTFPUzAyTldGbUxUTTJObVV0WWpFd05DMDBNV05tT1RsaU9XUTVaR1FpTENKcmFXUWlPaUowY21Ga1pWOXJaWGxmZGpJaUxDSnZiVzVsYldGdVlXZGxjbWxrSWpvMkxDSndjbTlrZFdOMGN5STZleUprWlcxaGRDSTZleUp6ZEdGMGRYTWlPaUpoWTNScGRtVWlmU3dpYldZaU9uc2ljM1JoZEhWeklqb2lZV04wYVhabEluMTlMQ0pwYzNNaU9pSjBjbUZrWlY5c2IyZHBibDl6WlhKMmFXTmxJaXdpYzNWaUlqb2lTRGMyTkRreklpd2laWGh3SWpveE56UXpNak01T0RJeExDSnVZbVlpT2pFM05ETXhOVE15TkRFc0ltbGhkQ0k2TVRjME16RTFNekkwTVN3aWFuUnBJam9pWVRaa05EUTNOelF0T1dKa01DMDBPVFppTFdJMU1HTXRNakU0WWpBMk1UUXlNVGMxSWl3aVZHOXJaVzRpT2lJaWZRLkt4RmRmUEpxY3JaRXVfeGxvejladVZZTmstMU9KNEJIaWJGNHEycVhHTS1uVzZwQUpXRHE3TFpFOXIwdTRRbVVBSXZITURpRmRyV1N4dG9qd0Q4WW1sZDh4ekVzUTlNRHh6VnpyazVGblhpYmwwVlNwVm9OYlRHcXJlRGhsT3VadldKaTJvbTYya0c5MUJlNEd4Z1d6R1ptSEVkdjJOY2RHTnFmWjVfWmJMYyIsIkFQSS1LRVkiOiJ0a1NSVG1XRiIsImlhdCI6MTc0MzE1MzQyMSwiZXhwIjoxNzQzMjM5ODIxfQ.zL5GnaCfpSCJaOo150Zs7vT-URU1t9tlVS1yYFM57Of3Ed6dcALpb_HfMN3n8Fc6geZT5dezALwh1p0qKUn9tA',
         'Accept': 'application/json',
         'X-SourceID': 'WEB',
         'Content-Type': 'application/json'
