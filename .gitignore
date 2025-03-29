@@ -59,3 +59,5 @@ Uploaded_Documents/
 # 📊 Ignore Trading Data (If you store logs/results)
 trading_data/
 backtest_results/
+
+venv
