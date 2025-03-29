@@ -27,8 +27,7 @@ USERNAME = os.getenv("USERNAMEE", "topgun")
 PASSWORD = os.getenv("PASSWORD", "maverick")
 @app.route('/')
 def index():
-    # return render_template('index.html')
-    return "Api is running"
+    return render_template('index.html')
 @app.route('/login', methods=['POST'])
 def login():
     data = request.json
@@ -99,5 +98,12 @@ def stop_supertrend():
     stop_flag = True  # Set flag to stop the running trade
     return jsonify({"message": "Supertrend trading stopped"}), 200
 
+@app.route('/')
+def home():
+    return "Trading Bot is Running!"
+
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)  # Changed port to avoid conflict
+    app.run()
+
+# if __name__ == "__main__":
+#     app.run(debug=True, port=5000)  # Changed port to avoid conflict
