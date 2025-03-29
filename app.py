@@ -27,7 +27,8 @@ USERNAME = os.getenv("USERNAMEE", "topgun")
 PASSWORD = os.getenv("PASSWORD", "maverick")
 @app.route('/')
 def index():
-    return render_template('index.html')
+    # return render_template('index.html')
+    return "Api is running"
 @app.route('/login', methods=['POST'])
 def login():
     data = request.json
