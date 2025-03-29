@@ -10,44 +10,76 @@ import time
 from dotenv import load_dotenv
 import pandas_ta as ta
 
+sys.stdout.reconfigure(encoding='utf-8')
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Angel One API credentials
+API_KEY = os.getenv("ANGELONE_API_KEY")
+CLIENT_ID = os.getenv("ANGELONE_CLIENT_ID")
+PASSWORD = os.getenv("ANGELONE_MPIN")
+TOTP_SECRET = os.getenv("ANGELONE_TOTP_SECRET")
+
+# Global variables
+auth_token = None
+headers = None
+duration = "DAY"
+# quantity = 1
+active_position = None
+entry_price = None
+stop_loss = None
+take_profit = None
+
+stop_flag = False
+# Candle size configuration
+CANDLE_SIZE = "ONE_MINUTE"  # Options: "ONE_MINUTE", "FIVE_MINUTE", "FIFTEEN_MINUTE", "THIRTY_MINUTE", "ONE_HOUR", "ONE_DAY"
+
+# Map candle size to minutes for calculations
+CANDLE_SIZE_MINUTES = {
+"ONE_MINUTE": 1,
+"FIVE_MINUTE": 5,
+"FIFTEEN_MINUTE": 15,
+"THIRTY_MINUTE": 30,
+"ONE_HOUR": 60,
+"ONE_DAY": 1440  # Not really used for intraday rounding, but included for completeness
+}
+
 def topgun(trading_symbol,symbol_token,exchange, quantity):
-# Fix UnicodeEncodeError for Windows
+    # Fix UnicodeEncodeError for Windows
     sys.stdout.reconfigure(encoding='utf-8')
 
     # Load environment variables from .env file
-    load_dotenv()
+    # load_dotenv()
 
-    # Angel One API credentials
-    API_KEY = os.getenv("ANGELONE_API_KEY")
-    CLIENT_ID = os.getenv("ANGELONE_CLIENT_ID")
-    PASSWORD = os.getenv("ANGELONE_MPIN")
-    TOTP_SECRET = os.getenv("ANGELONE_TOTP_SECRET")
+    # # Angel One API credentials
+    # API_KEY = os.getenv("ANGELONE_API_KEY")
+    # CLIENT_ID = os.getenv("ANGELONE_CLIENT_ID")
+    # PASSWORD = os.getenv("ANGELONE_MPIN")
+    # TOTP_SECRET = os.getenv("ANGELONE_TOTP_SECRET")
 
-    # Global variables
-    auth_token = None
-    headers = None
-    # trading_symbol = "SUZLON-EQ"
-    # symbol_token = "12018"  # SBIN by default
-    # exchange = "NSE"
-    duration = "DAY"
-    # quantity = 1
-    active_position = None
-    entry_price = None
-    stop_loss = None
-    take_profit = None
+    # # Global variables
+    # auth_token = None
+    # headers = None
+    # duration = "DAY"
+    # # quantity = 1
+    # active_position = None
+    # entry_price = None
+    # stop_loss = None
+    # take_profit = None
 
-    # Candle size configuration
-    CANDLE_SIZE = "ONE_MINUTE"  # Options: "ONE_MINUTE", "FIVE_MINUTE", "FIFTEEN_MINUTE", "THIRTY_MINUTE", "ONE_HOUR", "ONE_DAY"
+    # # Candle size configuration
+    # CANDLE_SIZE = "ONE_MINUTE"  # Options: "ONE_MINUTE", "FIVE_MINUTE", "FIFTEEN_MINUTE", "THIRTY_MINUTE", "ONE_HOUR", "ONE_DAY"
 
-    # Map candle size to minutes for calculations
-    CANDLE_SIZE_MINUTES = {
-        "ONE_MINUTE": 1,
-        "FIVE_MINUTE": 5,
-        "FIFTEEN_MINUTE": 15,
-        "THIRTY_MINUTE": 30,
-        "ONE_HOUR": 60,
-        "ONE_DAY": 1440  # Not really used for intraday rounding, but included for completeness
-    }
+    # # Map candle size to minutes for calculations
+    # CANDLE_SIZE_MINUTES = {
+    #     "ONE_MINUTE": 1,
+    #     "FIVE_MINUTE": 5,
+    #     "FIFTEEN_MINUTE": 15,
+    #     "THIRTY_MINUTE": 30,
+    #     "ONE_HOUR": 60,
+    #     "ONE_DAY": 1440  # Not really used for intraday rounding, but included for completeness
+    # }
 
     def debug_dataframe(df, label="Dataframe"):
         """Helper function to debug dataframe issues"""
@@ -64,6 +96,7 @@ def topgun(trading_symbol,symbol_token,exchange, quantity):
         print("=" * 40)
 
     def login_to_angel_one():
+        print(API_KEY)
         global auth_token, headers
         
         # API endpoint for login
@@ -87,7 +120,6 @@ def topgun(trading_symbol,symbol_token,exchange, quantity):
             "password": PASSWORD,
             "totp": pyotp.TOTP(TOTP_SECRET).now()
         }
-        
         try:
             response = requests.post(url, json=payload, headers=headers)
             response_data = response.json()
@@ -102,6 +134,31 @@ def topgun(trading_symbol,symbol_token,exchange, quantity):
                 return False
         except Exception as e:
             print("⚠ An error occurred during login:", str(e))
+            return False
+
+    def logout_from_angel_one():
+        global headers
+
+        # API endpoint for logout
+        url = "https://apiconnect.angelone.in/rest/secure/angelbroking/user/v1/logout"
+
+        # Request payload
+        payload = {
+            "clientcode": CLIENT_ID  # Ensure CLIENT_ID is defined
+        }
+
+        try:
+            response = requests.post(url, json=payload, headers=headers)
+            response_data = response.json()
+
+            if response_data.get("status"):
+                print("✅ Logout successful!")
+                return True
+            else:
+                print("❌ Logout failed. Error:", response_data.get("message"))
+                return False
+        except Exception as e:
+            print("⚠ An error occurred during logout:", str(e))
             return False
 
     def fetch_historical_stock_data(symbol_token, exchange):
@@ -630,81 +687,88 @@ def topgun(trading_symbol,symbol_token,exchange, quantity):
         market_end = datetime.time(15, 30)
         
         return market_start <= current_time <= market_end
-
+    
     def main():
-        global CANDLE_SIZE
         
+        global CANDLE_SIZE, stop_flag
+       
         # Login to Angel One
         if not login_to_angel_one():
             print("Exiting due to login failure")
             return
-        
+       
         # Set trading parameters
         # symbol_token = "3045"  # Reliance
         # exchange = "NSE"
         # quantity = 1
-        
+       
         # You can change candle size here
         # CANDLE_SIZE = "FIVE_MINUTE"  # Uncomment to change from default
-        print(f"Using {CANDLE_SIZE} candles for trading")
-        
+       
+       
         # Fetch historical data for initial Supertrend calculation
         historical_df = fetch_historical_stock_data(symbol_token, exchange)
-        
+       
         # Initialize live data with historical data
         live_df = historical_df.copy() if historical_df is not None else pd.DataFrame()
-        
+       
         # Calculate initial Supertrend
         if not live_df.empty:
             live_df = calculate_supertrend(live_df)
             print("Initial Supertrend calculated")
-            
+           
             # Plot initial chart
             plot_data_with_supertrend(live_df)
-        
+       
         # Trading loop
         print("Starting live trading session...")
         try:
-            while True:
+            while not stop_flag: #Exit when stop_flag is set to True
                 # Check if market is open - Uncomment for production use
                 #if not is_market_open():
                     #print(f"Market is closed at {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}. Waiting...")
                     #time.sleep(300)  # Wait 5 minutes before checking again
                     #continue
-                
+               
                 # Fetch latest live data
                 new_data = fetch_live_stock_data(symbol_token, exchange)
-                
+               
                 if new_data is not None and not new_data.empty:
                     # Debug information before update
                     debug_dataframe(live_df, "Before Update")
                     debug_dataframe(new_data, "New Data")
-                    
+                   
                     # Update our dataset - only keep OHLCV data
                     live_df = update_live_data(live_df, new_data)
-                    
+                   
                     # Debug information after update
                     debug_dataframe(live_df, "After Update")
-                    
+                   
                     # Recalculate Supertrend with updated data
                     if not live_df.empty:
                         live_df = calculate_supertrend(live_df)
-                        
+                       
                         if 'SUPERT_10_2.0' in live_df.columns:
                             # Apply trading strategy based on Supertrend signals
                             print(f'The Symbol Token:{trading_symbol}')
                             apply_trading_strategy(live_df, trading_symbol, quantity)
-                            
+                           
                             # Plot updated chart every 5 minutes
                             if datetime.datetime.now().minute % 5 == 0:
                                 plot_data_with_supertrend(live_df)
                         else:
                             print("⚠ Supertrend indicator not available in dataframe")
-                
+               
                 # Wait for 1 minute before next update
                 print(f"Waiting for next update... (Current time: {datetime.datetime.now().strftime('%H:%M:%S')})")
                 time.sleep(60)
-                
+ 
+                #Check stop flag before looping
+                print(stop_flag)
+                if stop_flag:
+                    print("Gracefully stopping trading...")
+                    break
+               
         except KeyboardInterrupt:
             print("\nTrading session ended by user.")
         except Exception as e:
@@ -720,7 +784,7 @@ def topgun(trading_symbol,symbol_token,exchange, quantity):
                         plot_data_with_supertrend(live_df)
                 except Exception as e:
                     print(f"⚠ Error plotting final chart: {str(e)}")
+            logout_from_angel_one()  # Ensure safe logout before stopping
             print("Trading session ended.")
-
-if __name__ == "__main__":
+                
     main()
